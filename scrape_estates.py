@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-28hse.com 私人屋苑楼宇ID爬取脚本
+私人屋苑楼宇ID爬取脚本
 通过爬取屋苑成交页面获取全香港所有私人屋苑的名称和ID映射
 """
 
@@ -16,7 +16,7 @@ import sys
 
 
 class EstateIDScraper:
-    """28hse屋苑ID爬虫"""
+    """屋苑ID爬虫"""
     
     def __init__(self, max_workers: int = 5):
         """
@@ -289,7 +289,7 @@ class EstateIDScraper:
             use_threading: 是否使用多线程（默认True，速度更快）
         """
         print("="*60)
-        print("开始爬取28hse私人屋苑数据")
+        print("开始爬取私人屋苑数据")
         print("="*60)
             
         # 获取总页数
@@ -389,7 +389,7 @@ def main():
     """主函数"""
     import argparse
     
-    parser = argparse.ArgumentParser(description='28hse私人屋苑爬虫')
+    parser = argparse.ArgumentParser(description='私人屋苑爬虫')
     parser.add_argument('--workers', type=int, default=5, help='并发线程数（默认5）')
     parser.add_argument('--single-thread', action='store_true', help='使用单线程模式')
     parser.add_argument('--output', type=str, default='estates_mapping.json', help='输出文件名')
