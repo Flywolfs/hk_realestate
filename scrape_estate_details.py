@@ -100,14 +100,36 @@ class EstateDetailScraper:
         if address_link:
             static_info['address'] = address_link.get_text(strip=True)
         
-        # 提取坐标（从JavaScript代码中）
-        lat_match = re.search(r'defaultLat\s*=\s*([\d.]+)', page_text)
-        lng_match = re.search(r'defaultLng\s*=\s*([\d.]+)', page_text)
-        if lat_match and lng_match:
-            static_info['coordinates'] = {
-                'latitude': float(lng_match.group(1)),   # 注意：网站的Lng实际是纬度
-                'longitude': float(lat_match.group(1))   # 网站的Lat实际是经度
-            }
+        # 提取坐标（从地图图片img标签中）
+        # 优先从 data-y 和 data-x 属性提取
+        map_img = soup.find('img', class_='staticGoogleMapImg')
+        if map_img:
+            # 尝试从 data-y 和 data-x 属性提取
+            data_y = map_img.get('data-y')
+            data_x = map_img.get('data-x')
+            
+            if data_y and data_x:
+                try:
+                    static_info['coordinates'] = {
+                        'latitude': float(data_y),
+                        'longitude': float(data_x)
+                    }
+                except ValueError:
+                    pass
+            
+            # 如果 data 属性没有，尝试从 onclick 属性提取
+            if 'coordinates' not in static_info:
+                onclick = map_img.get('onclick', '')
+                # 匹配 initNearbyMap(纬度, 经度) 格式
+                coord_match = re.search(r'initNearbyMap\s*\(\s*([\d.]+)\s*,\s*([\d.]+)\s*\)', onclick)
+                if coord_match:
+                    try:
+                        static_info['coordinates'] = {
+                            'latitude': float(coord_match.group(1)),
+                            'longitude': float(coord_match.group(2))
+                        }
+                    except ValueError:
+                        pass
         
         # 提取屋苑资料
         estate_info_section = soup.find('h3', string=re.compile(r'屋苑資料'))
