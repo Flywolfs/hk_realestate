@@ -45,13 +45,13 @@ class TransactionRecordScraper:
         
     def load_estates_mapping(self, json_path: str) -> Dict[str, str]:
         """
-        加载屋苑名称-ID映射
+        加载屋苑ID-名称映射
         
         Args:
             json_path: estates_mapping.json 文件路径
             
         Returns:
-            {屋苑名称: 屋苑ID}
+            {屋苑ID: 屋苑名称}
         """
         try:
             with open(json_path, 'r', encoding='utf-8') as f:
@@ -606,7 +606,7 @@ class TransactionRecordScraper:
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             futures = {
                 executor.submit(process_estate, name, eid): (name, eid)
-                for name, eid in estates_mapping.items()
+                for eid, name in estates_mapping.items()
             }
             
             for future in as_completed(futures):

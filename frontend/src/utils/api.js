@@ -58,4 +58,12 @@ export async function searchEstates(keyword) {
   })
 }
 
+/**
+ * 获取小学校网列表
+ * @returns {Promise} 校网列表
+ */
+export async function getPrimarySchools() {
+  return api.get('/primary-schools')
+}
+
 export default api

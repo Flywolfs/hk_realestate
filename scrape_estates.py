@@ -42,7 +42,7 @@ class EstateIDScraper:
         })
         
         # 存储结果
-        self.estate_mapping = {}  # {楼宇名称: 楼宇ID}
+        self.estate_mapping = {}  # {楼宇ID: 楼宇名称} - 修改为以ID为key避免重名问题
         self.estate_full_info = {}  # {楼宇ID: {name, district, url, type}}
         
     def get_total_pages(self) -> int:
@@ -199,7 +199,7 @@ class EstateIDScraper:
                     meta = item.find('div', class_='meta')
                     district = meta.get_text(strip=True) if meta else ''
                     
-                    self.estate_mapping[estate_name] = estate_id
+                    self.estate_mapping[estate_id] = estate_name  # 修改：以ID为key，名称为value
                     self.estate_full_info[estate_id] = {
                         'name': estate_name,
                         'id': estate_id,
@@ -258,7 +258,7 @@ class EstateIDScraper:
                                     area_map = {'1': '香港島', '2': '九龍', '3': '新界', '170': '離島'}
                                     area = area_map.get(area_code, '其他')
                                 
-                                self.estate_mapping[estate_name] = estate_id
+                                self.estate_mapping[estate_id] = estate_name  # 修改：以ID为key，名称为value
                                 self.estate_full_info[estate_id] = {
                                     'name': estate_name,
                                     'id': estate_id,
@@ -351,11 +351,11 @@ class EstateIDScraper:
         Args:
             output_file: 输出文件路径
         """
-        # 保存简单的名称-ID映射
+        # 保存简单的ID-名称映射
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(self.estate_mapping, f, ensure_ascii=False, indent=2)
         
-        print(f"\n✓ 楼宇名称-ID映射已保存到: {output_file}")
+        print(f"\n✓ 楼宇ID-名称映射已保存到: {output_file}")
         
         # 保存详细信息
         detailed_file = output_file.replace('.json', '_detailed.json')
@@ -370,17 +370,17 @@ class EstateIDScraper:
         print(f"结果样例（前{num_samples}条）:")
         print(f"{'='*60}")
         
-        for i, (name, estate_id) in enumerate(list(self.estate_mapping.items())[:num_samples]):
+        for i, (estate_id, name) in enumerate(list(self.estate_mapping.items())[:num_samples]):
             info = self.estate_full_info.get(estate_id, {})
-            area = info.get('area', '未知')
-            print(f"{i+1:2d}. {name:20s} → ID: {estate_id:6s} (区域: {area})")
+            district = info.get('district', '未知')
+            print(f"{i+1:2d}. {name:20s} → ID: {estate_id:6s} (区域: {district})")
     
     def get_mapping(self) -> Dict[str, str]:
         """
-        获取楼宇名称-ID映射
+        获取楼宇ID-名称映射
         
         Returns:
-            {楼宇名称: 楼宇ID} 字典
+            {楼宇ID: 楼宇名称} 字典
         """
         return self.estate_mapping
 

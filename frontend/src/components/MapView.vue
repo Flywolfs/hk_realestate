@@ -35,6 +35,52 @@
         </label>
       </div>
       
+      <div class="filter-section">
+        <h4>房屋类型</h4>
+        <label class="checkbox-label">
+          <input type="checkbox" v-model="filters.showGongwu" @change="applyFilters" />
+          <span>显示公屋</span>
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" v-model="filters.showJuwu" @change="applyFilters" />
+          <span>显示居屋</span>
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" v-model="filters.showPrivate" @change="applyFilters" />
+          <span>显示私人屋苑</span>
+        </label>
+      </div>
+      
+      <div class="filter-section">
+        <h4>建成年份</h4>
+        <label class="checkbox-label">
+          <input type="checkbox" v-model="filters.after2010" @change="applyFilters" />
+          <span>2010年后</span>
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" v-model="filters.year2000to2010" @change="applyFilters" />
+          <span>2000-2010年</span>
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" v-model="filters.year1990to2000" @change="applyFilters" />
+          <span>1990-2000年</span>
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" v-model="filters.before1990" @change="applyFilters" />
+          <span>1990年前</span>
+        </label>
+      </div>
+      
+      <div class="filter-section" v-if="primarySchools.length > 0">
+        <h4>小学校网 <span class="small-text">(共{{ primarySchools.length }}个)</span></h4>
+        <div class="school-list">
+          <label v-for="school in primarySchools" :key="school.school" class="checkbox-label">
+            <input type="checkbox" v-model="filters.selectedSchools" :value="school.school" @change="applyFilters" />
+            <span>校网 {{ school.school }} ({{ school.count }})</span>
+          </label>
+        </div>
+      </div>
+      
       <button class="reset-btn" @click="resetFilters">重置筛选</button>
     </div>
     
@@ -50,7 +96,7 @@
 
 <script>
 import L from 'leaflet'
-import { getAllEstates, getEstateDetail, getRentRatioStats } from '../utils/api.js'
+import { getAllEstates, getEstateDetail, getRentRatioStats, getPrimarySchools } from '../utils/api.js'
 import { getRentRatioColor } from '../utils/colorUtils.js'
 
 export default {
@@ -64,12 +110,21 @@ export default {
       error: null,
       rentRatioStats: null,
       showGrayMarkers: false,  // 是否显示灰色标记
+      primarySchools: [],  // 小学校网列表
       filters: {
         below3: false,
         range3to3_5: false,
         range3_5to4: false,
         range4to5: false,
-        above5: false
+        above5: false,
+        showGongwu: false,
+        showJuwu: false,
+        showPrivate: false,
+        after2010: false,
+        year2000to2010: false,
+        year1990to2000: false,
+        before1990: false,
+        selectedSchools: []  // 选中的校网
       }
     }
   },
@@ -95,9 +150,10 @@ export default {
         this.error = null
         
         // 并行获取数据
-        const [estatesResponse, statsResponse] = await Promise.all([
+        const [estatesResponse, statsResponse, schoolsResponse] = await Promise.all([
           getAllEstates(),
-          getRentRatioStats()
+          getRentRatioStats(),
+          getPrimarySchools()
         ])
         
         if (!estatesResponse.success || !statsResponse.success) {
@@ -106,6 +162,11 @@ export default {
         
         this.rentRatioStats = statsResponse.data
         this.allEstates = estatesResponse.data
+        
+        // 加载校网数据
+        if (schoolsResponse.success) {
+          this.primarySchools = schoolsResponse.data
+        }
         
         // 为每个小区创建标记
         this.allEstates.forEach(estate => {
@@ -135,8 +196,8 @@ export default {
       const marker = L.circleMarker([latitude, longitude], {
         radius: 6,
         fillColor: color,
-        color: '#fff',
-        weight: 2,
+        color: '#333333',  // 边框颜色改为深灰色
+        weight: 1.5,       // 边框宽度稍微减小
         opacity: 1,
         fillOpacity: 0.8
       }).addTo(this.map)
@@ -225,23 +286,63 @@ export default {
       
       // 如果没有租售比数据
       if (ratio === null || ratio === undefined) {
-        return this.showGrayMarkers
+        if (!this.showGrayMarkers) return false
       }
       
-      // 如果所有筛选都未选中，显示所有
-      const anyFilterSelected = Object.values(this.filters).some(v => v)
-      if (!anyFilterSelected) {
-        return true
+      // === 租售比区间筛选 ===
+      const anyRatioFilterSelected = this.filters.below3 || this.filters.range3to3_5 || 
+                                      this.filters.range3_5to4 || this.filters.range4to5 || 
+                                      this.filters.above5
+      
+      if (anyRatioFilterSelected && ratio !== null && ratio !== undefined) {
+        let inRatioRange = false
+        if (this.filters.below3 && ratio < 3) inRatioRange = true
+        if (this.filters.range3to3_5 && ratio >= 3 && ratio < 3.5) inRatioRange = true
+        if (this.filters.range3_5to4 && ratio >= 3.5 && ratio < 4) inRatioRange = true
+        if (this.filters.range4to5 && ratio >= 4 && ratio < 5) inRatioRange = true
+        if (this.filters.above5 && ratio >= 5) inRatioRange = true
+        
+        if (!inRatioRange) return false
       }
       
-      // 检查是否在选中的区间内
-      if (this.filters.below3 && ratio < 3) return true
-      if (this.filters.range3to3_5 && ratio >= 3 && ratio < 3.5) return true
-      if (this.filters.range3_5to4 && ratio >= 3.5 && ratio < 4) return true
-      if (this.filters.range4to5 && ratio >= 4 && ratio < 5) return true
-      if (this.filters.above5 && ratio >= 5) return true
+      // === 房屋类型筛选 ===
+      const anyTypeFilterSelected = this.filters.showGongwu || this.filters.showJuwu || this.filters.showPrivate
       
-      return false
+      if (anyTypeFilterSelected) {
+        const housingType = estate.housing_type
+        let inTypeRange = false
+        
+        if (this.filters.showGongwu && housingType === 'gongwu') inTypeRange = true
+        if (this.filters.showJuwu && housingType === 'juwu') inTypeRange = true
+        if (this.filters.showPrivate && !housingType) inTypeRange = true  // 没有类型标记的为私人屋苑
+        
+        if (!inTypeRange) return false
+      }
+      
+      // === 建成年份筛选 ===
+      const anyYearFilterSelected = this.filters.after2010 || this.filters.year2000to2010 || 
+                                     this.filters.year1990to2000 || this.filters.before1990
+      
+      if (anyYearFilterSelected) {
+        const year = estate.establish_year
+        if (!year || typeof year !== 'number') return false
+        
+        let inYearRange = false
+        if (this.filters.after2010 && year > 2010) inYearRange = true
+        if (this.filters.year2000to2010 && year >= 2000 && year <= 2010) inYearRange = true
+        if (this.filters.year1990to2000 && year >= 1990 && year < 2000) inYearRange = true
+        if (this.filters.before1990 && year < 1990) inYearRange = true
+        
+        if (!inYearRange) return false
+      }
+      
+      // === 小学校网筛选 ===
+      if (this.filters.selectedSchools.length > 0) {
+        const school = estate.primary_school
+        if (!this.filters.selectedSchools.includes(school)) return false
+      }
+      
+      return true
     },
     
     // 应用筛选
@@ -264,7 +365,15 @@ export default {
         range3to3_5: false,
         range3_5to4: false,
         range4to5: false,
-        above5: false
+        above5: false,
+        showGongwu: false,
+        showJuwu: false,
+        showPrivate: false,
+        after2010: false,
+        year2000to2010: false,
+        year1990to2000: false,
+        before1990: false,
+        selectedSchools: []
       }
       this.applyFilters()
     }
@@ -310,6 +419,12 @@ export default {
   font-weight: 600;
 }
 
+.filter-section h4 .small-text {
+  font-size: 11px;
+  color: #999;
+  font-weight: normal;
+}
+
 .checkbox-label {
   display: flex;
   align-items: center;
@@ -332,6 +447,30 @@ export default {
 
 .checkbox-label:hover {
   color: #4CAF50;
+}
+
+.school-list {
+  max-height: 200px;
+  overflow-y: auto;
+  padding-right: 5px;
+}
+
+.school-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.school-list::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.school-list::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 3px;
+}
+
+.school-list::-webkit-scrollbar-thumb:hover {
+  background: #555;
 }
 
 .reset-btn {

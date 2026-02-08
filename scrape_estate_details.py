@@ -44,13 +44,13 @@ class EstateDetailScraper:
         
     def load_estates_mapping(self, json_path: str) -> Dict[str, str]:
         """
-        加载屋苑名称-ID映射
+        加载屋苑ID-名称映射
         
         Args:
             json_path: estates_mapping.json 文件路径
             
         Returns:
-            {屋苑名称: 屋苑ID} 字典
+            {屋苑ID: 屋苑名称} 字典
         """
         with open(json_path, 'r', encoding='utf-8') as f:
             return json.load(f)
@@ -291,7 +291,7 @@ class EstateDetailScraper:
         爬取所有屋苑的详细信息
         
         Args:
-            estates_mapping: {屋苑名称: 屋苑ID} 字典
+            estates_mapping: {屋苑ID: 屋苑名称} 字典
             use_threading: 是否使用多线程
         """
         total = len(estates_mapping)
@@ -313,7 +313,7 @@ class EstateDetailScraper:
     def _scrape_sequential(self, estates_mapping: Dict[str, str]):
         """单线程顺序爬取"""
         total = len(estates_mapping)
-        for i, (name, estate_id) in enumerate(estates_mapping.items(), 1):
+        for i, (estate_id, name) in enumerate(estates_mapping.items(), 1):
             static_info, dynamic_info = self.fetch_estate_detail(name, estate_id)
             
             if static_info:
@@ -335,7 +335,7 @@ class EstateDetailScraper:
             # 提交所有任务
             futures = {
                 executor.submit(self.fetch_estate_detail, name, estate_id): (name, estate_id)
-                for name, estate_id in estates_mapping.items()
+                for estate_id, name in estates_mapping.items()
             }
             
             # 处理完成的任务

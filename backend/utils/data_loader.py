@@ -15,8 +15,9 @@ class DataLoader:
         :param base_path: 项目根目录路径
         """
         self.base_path = base_path
-        self.estate_static_path = os.path.join(base_path, 'estate_static_info.json')
+        self.estate_static_path = os.path.join(base_path, 'estate_static_info_convert.json')
         self.rent_ratio_path = os.path.join(base_path, 'average_rent_sale_ratio.json')
+        self.housing_types_path = os.path.join(base_path, 'housing_types.json')
     
     @lru_cache(maxsize=1)
     def load_estate_static_info(self) -> Dict:
@@ -51,6 +52,22 @@ class DataLoader:
             print(f"错误: JSON解析失败 {e}")
             return {}
     
+    @lru_cache(maxsize=1)
+    def load_housing_types(self) -> Dict:
+        """
+        加载公屋和居屋数据
+        使用LRU缓存提高性能
+        """
+        try:
+            with open(self.housing_types_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            print(f"错误: 未找到文件 {self.housing_types_path}")
+            return {'gongwu': {'names': []}, 'juwu': {'names': []}}
+        except json.JSONDecodeError as e:
+            print(f"错误: JSON解析失败 {e}")
+            return {'gongwu': {'names': []}, 'juwu': {'names': []}}
+    
     def get_integrated_estates(self) -> List[Dict]:
         """
         获取整合后的小区数据列表
@@ -58,6 +75,11 @@ class DataLoader:
         """
         static_info = self.load_estate_static_info()
         rent_ratios = self.load_rent_ratio_data()
+        housing_types = self.load_housing_types()
+        
+        # 建立名称到类型的映射
+        gongwu_names = set(housing_types.get('gongwu', {}).get('names', []))
+        juwu_names = set(housing_types.get('juwu', {}).get('names', []))
         
         integrated_list = []
         
@@ -70,12 +92,28 @@ class DataLoader:
             # 整合租售比数据
             rent_ratio = rent_ratios.get(estate_id)
             
+            # 判断房屋类型
+            estate_name = estate_data.get('name', '')
+            housing_type = None
+            if estate_name in gongwu_names:
+                housing_type = 'gongwu'
+            elif estate_name in juwu_names:
+                housing_type = 'juwu'
+            
+            # 提取establish_year和primary_school
+            basic_info = estate_data.get('basic_info', {})
+            establish_year = estate_data.get('establish_year') or basic_info.get('establish_year')
+            primary_school = estate_data.get('primary_school') or basic_info.get('primary_school')
+            
             integrated_list.append({
                 'id': estate_id,
                 'name': estate_data.get('name', ''),
                 'address': estate_data.get('address', ''),
                 'coordinates': coordinates,
-                'rent_ratio': rent_ratio  # 可能为None
+                'rent_ratio': rent_ratio,
+                'housing_type': housing_type,
+                'establish_year': establish_year,
+                'primary_school': primary_school
             })
         
         return integrated_list

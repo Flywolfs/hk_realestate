@@ -110,6 +110,42 @@ def search_estates():
         }), 500
 
 
+@app.route('/api/primary-schools', methods=['GET'])
+def get_primary_schools():
+    """
+    获取所有小学校网列表
+    返回按小区数量排序的校网
+    """
+    try:
+        estates = data_loader.get_integrated_estates()
+        
+        # 统计每个校网的小区数量
+        school_count = {}
+        for estate in estates:
+            school = estate.get('primary_school')
+            if school is not None and school != '':
+                school_count[school] = school_count.get(school, 0) + 1
+        
+        # 按数量排序
+        sorted_schools = sorted(school_count.items(), key=lambda x: x[1], reverse=True)
+        
+        # 返回所有校网
+        result = [
+            {'school': school, 'count': count}
+            for school, count in sorted_schools
+        ]
+        
+        return jsonify({
+            'success': True,
+            'data': result
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve_frontend(path):
