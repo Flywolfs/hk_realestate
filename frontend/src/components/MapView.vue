@@ -246,9 +246,23 @@ export default {
             ` : ''}
             ${detail.rent_ratio ? `
               <div class="popup-section highlight">
-                <strong>租售比:</strong> ${detail.rent_ratio.toFixed(2)}%
+                <strong>总体租售比:</strong> ${detail.rent_ratio.toFixed(2)}%
               </div>
-            ` : '<div class="popup-section"><strong>租售比:</strong> 暂无数据</div>'}
+            ` : '<div class="popup-section"><strong>总体租售比:</strong> 暂无数据</div>'}
+            
+            ${detail.room_type_ratio && Object.keys(detail.room_type_ratio).length > 0 ? `
+              <div class="popup-section room-type-section">
+                <strong>户型租售比:</strong>
+                <div class="room-type-list">
+                  ${Object.entries(detail.room_type_ratio).map(([roomId, ratio]) => `
+                    <div class="room-type-item">
+                      <span class="room-id">户型 ${roomId}:</span>
+                      <span class="room-ratio">${ratio.toFixed(2)}%</span>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>
+            ` : ''}
           </div>
         `
         
@@ -592,5 +606,45 @@ export default {
 
 .popup-section.highlight strong {
   color: #2e7d32;
+}
+
+.popup-section.room-type-section {
+  background: #f5f5f5;
+  padding: 10px;
+  border-radius: 4px;
+  margin-top: 10px;
+}
+
+.popup-section.room-type-section strong {
+  display: block;
+  margin-bottom: 8px;
+  color: #333;
+}
+
+.room-type-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.room-type-item {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  padding: 3px 0;
+  border-bottom: 1px dashed #ddd;
+}
+
+.room-type-item:last-child {
+  border-bottom: none;
+}
+
+.room-id {
+  color: #666;
+}
+
+.room-ratio {
+  color: #4CAF50;
+  font-weight: 500;
 }
 </style>

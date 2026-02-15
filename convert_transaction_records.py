@@ -136,6 +136,29 @@ class TransactionRecordConverter:
                 return None
         return None
     
+    def extract_room_count(self, room_type: str) -> int:
+        """
+        从房型文本中提取房间数量
+        
+        Args:
+            room_type: 房型文本，如 "3房", "2房", "1房", "studio" 等
+            
+        Returns:
+            房间数量（整数），如果无法提取则返回 -1
+        """
+        if not room_type or not isinstance(room_type, str):
+            return -1
+        
+        # 提取 "x房" 格式中的数字
+        match = re.search(r'(\d+)\s*房', room_type)
+        if match:
+            try:
+                return int(match.group(1))
+            except ValueError:
+                return -1
+        
+        return -1
+    
     def convert_total_rent(self, rent_text: str) -> Optional[int]:
         """
         转换租金总价为数字（单位：元）
@@ -184,6 +207,12 @@ class TransactionRecordConverter:
         """
         converted = transaction.copy()
         
+        # 提取房型数量
+        if 'room_type' in transaction:
+            room_count = self.extract_room_count(transaction['room_type'])
+            converted['room_count'] = room_count
+            # room_type 字段已保留在 converted 中
+        
         # 转换面积
         if 'area' in transaction:
             area = self.convert_area(transaction['area'])
@@ -231,6 +260,12 @@ class TransactionRecordConverter:
             转换后的交易记录字典
         """
         converted = transaction.copy()
+        
+        # 提取房型数量
+        if 'room_type' in transaction:
+            room_count = self.extract_room_count(transaction['room_type'])
+            converted['room_count'] = room_count
+            # room_type 字段已保留在 converted 中
         
         # 转换面积
         if 'area' in transaction:
@@ -364,10 +399,10 @@ class TransactionRecordConverter:
         # 输出警告信息
         if self.warnings:
             print(f"\n⚠️  警告信息 (共{len(self.warnings)}条，显示前10条):")
-            for warning in self.warnings[:10]:
+            for warning in self.warnings:
                 print(f"  - {warning}")
-            if len(self.warnings) > 10:
-                print(f"  ... 还有 {len(self.warnings) - 10} 条警告")
+            # if len(self.warnings) > 10:
+            #     print(f"  ... 还有 {len(self.warnings) - 10} 条警告")
         
         print("\n" + "=" * 70)
         print("转换完成！")

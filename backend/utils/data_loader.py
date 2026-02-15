@@ -89,8 +89,15 @@ class DataLoader:
             if not coordinates or not coordinates.get('latitude') or not coordinates.get('longitude'):
                 continue
             
-            # 整合租售比数据
-            rent_ratio = rent_ratios.get(estate_id)
+            # 整合租售比数据（新数据结构）
+            rent_ratio_data = rent_ratios.get(estate_id, {})
+            if isinstance(rent_ratio_data, dict):
+                overall_ratio = rent_ratio_data.get('overall_ratio')
+                room_type_ratio = rent_ratio_data.get('room_type_ratio', {})
+            else:
+                # 兼容旧数据结构
+                overall_ratio = rent_ratio_data
+                room_type_ratio = {}
             
             # 判断房屋类型
             estate_name = estate_data.get('name', '')
@@ -110,7 +117,8 @@ class DataLoader:
                 'name': estate_data.get('name', ''),
                 'address': estate_data.get('address', ''),
                 'coordinates': coordinates,
-                'rent_ratio': rent_ratio,
+                'rent_ratio': overall_ratio,
+                'room_type_ratio': room_type_ratio,
                 'housing_type': housing_type,
                 'establish_year': establish_year,
                 'primary_school': primary_school
@@ -134,12 +142,22 @@ class DataLoader:
         # 整合详细信息
         basic_info = estate_data.get('basic_info', {})
         
+        # 处理新的租售比数据结构
+        rent_ratio_data = rent_ratios.get(estate_id, {})
+        if isinstance(rent_ratio_data, dict):
+            overall_ratio = rent_ratio_data.get('overall_ratio')
+            room_type_ratio = rent_ratio_data.get('room_type_ratio', {})
+        else:
+            overall_ratio = rent_ratio_data
+            room_type_ratio = {}
+        
         detail = {
             'id': estate_id,
             'name': estate_data.get('name', ''),
             'address': estate_data.get('address', ''),
             'coordinates': estate_data.get('coordinates', {}),
-            'rent_ratio': rent_ratios.get(estate_id),
+            'rent_ratio': overall_ratio,
+            'room_type_ratio': room_type_ratio,
             'establish_year': basic_info.get('establish_year', estate_data.get('establish_year', '')),
             'developer': basic_info.get('developer', estate_data.get('developer', '')),
             'building_count': basic_info.get('building_count', estate_data.get('building_count', '')),
@@ -169,14 +187,34 @@ class DataLoader:
                 'data': {}
             }
         
-        values = list(rent_ratios.values())
+        # 提取overall_ratio用于统计
+        overall_ratios = {}
+        for estate_id, ratio_data in rent_ratios.items():
+            if isinstance(ratio_data, dict):
+                overall_ratio = ratio_data.get('overall_ratio')
+            else:
+                overall_ratio = ratio_data
+            
+            if overall_ratio is not None:
+                overall_ratios[estate_id] = overall_ratio
+        
+        values = list(overall_ratios.values())
+        
+        if not values:
+            return {
+                'min': 0,
+                'max': 0,
+                'average': 0,
+                'count': 0,
+                'data': {}
+            }
         
         return {
             'min': min(values),
             'max': max(values),
             'average': sum(values) / len(values),
             'count': len(values),
-            'data': rent_ratios
+            'data': overall_ratios
         }
     
     def search_estates_by_name(self, keyword: str) -> List[Dict]:
