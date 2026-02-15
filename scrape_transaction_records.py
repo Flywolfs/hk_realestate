@@ -21,17 +21,21 @@ import sys
 class TransactionRecordScraper:
     """屋苑成交记录爬虫"""
     
-    def __init__(self, max_workers: int = 3):
+    def __init__(self, max_workers: int = 3, incremental: bool = False, data_dir: str = '28hse/transaction_records'):
         """
         初始化爬虫
         
         Args:
             max_workers: 并发线程数，默认3（成交记录数据量大，降低并发避免被限制）
+            incremental: 是否启用增量爬取模式
+            data_dir: 数据存储目录
         """
         self.base_url = "https://www.28hse.com"
         self.api_url = f"{self.base_url}/estate/detail_doaction"
         self.session = requests.Session()
         self.max_workers = max_workers
+        self.incremental = incremental
+        self.data_dir = data_dir
         
         # 设置请求头
         self.session.headers.update({
@@ -79,6 +83,105 @@ class TransactionRecordScraper:
             # 如果解析失败，保守起见返回True（继续爬取）
             print(f"    ⚠️  日期解析失败: {date_str} - {e}")
             return True
+    
+    def compare_dates(self, date1: str, date2: str) -> int:
+        """
+        比较两个日期
+        
+        Args:
+            date1: 日期字符串1
+            date2: 日期字符串2
+            
+        Returns:
+            1 if date1 > date2, -1 if date1 < date2, 0 if equal
+        """
+        try:
+            d1 = datetime.strptime(date1, '%Y-%m-%d')
+            d2 = datetime.strptime(date2, '%Y-%m-%d')
+            if d1 > d2:
+                return 1
+            elif d1 < d2:
+                return -1
+            else:
+                return 0
+        except Exception:
+            return 0
+    
+    def load_existing_data(self, estate_id: str, field: str) -> Tuple[Optional[Dict], Optional[str]]:
+        """
+        加载现有的交易记录数据
+        
+        Args:
+            estate_id: 屋苑ID
+            field: 'buy' 或 'rent'
+            
+        Returns:
+            (现有数据字典, 最新记录的日期) 或 (None, None)
+        """
+        file_path = os.path.join(self.data_dir, field, f"{estate_id}.json")
+        
+        if not os.path.exists(file_path):
+            return None, None
+        
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # 获取最新记录的日期（第一条记录）
+            transactions = data.get('transactions', [])
+            if transactions and len(transactions) > 0:
+                latest_date = transactions[0].get('date', '')
+                return data, latest_date
+            
+            return data, None
+        except Exception as e:
+            print(f"    ⚠️  加载现有数据失败 ({estate_id} {field}): {e}")
+            return None, None
+    
+    def merge_transactions(self, existing_data: Dict, new_transactions: List[Dict]) -> Dict:
+        """
+        合并新旧交易记录，去重并按日期排序
+        
+        Args:
+            existing_data: 现有数据
+            new_transactions: 新获取的交易记录
+            
+        Returns:
+            合并后的完整数据
+        """
+        existing_transactions = existing_data.get('transactions', [])
+        
+        # 创建一个集合用于去重（基于关键字段）
+        seen = set()
+        merged = []
+        
+        # 首先添加所有新记录
+        for trans in new_transactions:
+            key = (trans.get('unit_location', ''), 
+                   trans.get('date', ''), 
+                   trans.get('total_price') or trans.get('total_rent', ''))
+            if key not in seen:
+                seen.add(key)
+                merged.append(trans)
+        
+        # 然后添加现有记录（如果不重复）
+        for trans in existing_transactions:
+            key = (trans.get('unit_location', ''), 
+                   trans.get('date', ''), 
+                   trans.get('total_price') or trans.get('total_rent', ''))
+            if key not in seen:
+                seen.add(key)
+                merged.append(trans)
+        
+        # 按日期从新到旧排序
+        merged.sort(key=lambda x: x.get('date', ''), reverse=True)
+        
+        # 更新数据
+        result = existing_data.copy()
+        result['transactions'] = merged
+        result['total_records'] = len(merged)
+        
+        return result
     
     def filter_transactions_by_date(self, transactions: List[Dict]) -> Tuple[List[Dict], bool]:
         """
@@ -460,9 +563,9 @@ class TransactionRecordScraper:
         return 1
     
     def scrape_estate_transactions(self, estate_name: str, estate_id: str, 
-                                   field: str) -> List[Dict]:
+                                   field: str) -> Tuple[List[Dict], bool]:
         """
-        爬取单个屋苑的2025年及之后的成交记录
+        爬取单个屋苑的2025年及之后的成交记录（支持增量模式）
         
         Args:
             estate_name: 屋苑名称
@@ -470,9 +573,20 @@ class TransactionRecordScraper:
             field: 'buy' 或 'rent'
             
         Returns:
-            所有2025年及之后的成交记录列表
+            (所有2025年及之后的成交记录列表, 是否为增量更新)
         """
         print(f"  正在爬取: {estate_name} ({field}记录)")
+        
+        # 增量模式：加载现有数据
+        cutoff_date = None
+        is_incremental_update = False
+        
+        if self.incremental:
+            existing_data, latest_date = self.load_existing_data(estate_id, field)
+            if existing_data and latest_date:
+                cutoff_date = latest_date
+                is_incremental_update = True
+                print(f"    🔄 增量模式: 现有数据最新日期 = {cutoff_date}")
         
         all_transactions = []
         
@@ -480,7 +594,7 @@ class TransactionRecordScraper:
         first_page_html = self.fetch_transaction_page(estate_id, 1, field)
         if not first_page_html:
             print(f"    ⚠️  无法获取第1页数据")
-            return all_transactions
+            return all_transactions, is_incremental_update
         
         # 解析第1页数据
         if field == 'buy':
@@ -488,17 +602,45 @@ class TransactionRecordScraper:
         else:
             page_transactions = self.parse_rent_transactions(first_page_html)
         
-        # 过滤日期
-        filtered_transactions, all_before_2025 = self.filter_transactions_by_date(page_transactions)
-        all_transactions.extend(filtered_transactions)
-        
-        print(f"    第1页: {len(page_transactions)} 条记录 (过滤后: {len(filtered_transactions)} 条)")
-        
-        # 如果第1页全部是2025年之前的记录，直接返回
-        if all_before_2025:
-            print(f"    ℹ️  第1页全部是2025年之前的记录，停止爬取")
-            print(f"    ✓ 完成: 共 {len(all_transactions)} 条{field}记录 (2025年及之后)")
-            return all_transactions
+        # 增量模式：检查是否有比cutoff_date更新的记录
+        if cutoff_date:
+            new_records = []
+            reached_cutoff = False
+            
+            for trans in page_transactions:
+                trans_date = trans.get('date', '')
+                if not trans_date:
+                    continue
+                
+                # 如果记录日期 <= cutoff_date，停止
+                if self.compare_dates(trans_date, cutoff_date) <= 0:
+                    reached_cutoff = True
+                    break
+                
+                # 只保禙2025年及之后的记录
+                if self.is_date_after_2025(trans_date):
+                    new_records.append(trans)
+            
+            all_transactions.extend(new_records)
+            print(f"    第1页: {len(page_transactions)} 条记录 (新增: {len(new_records)} 条)")
+            
+            # 如果第1页就达到了cutoff，直接返回
+            if reached_cutoff:
+                print(f"    ✓ 已达到现有数据日期，停止爬取")
+                print(f"    ✓ 完成: 新增 {len(all_transactions)} 条{field}记录")
+                return all_transactions, is_incremental_update
+        else:
+            # 非增量模式：过滤日期
+            filtered_transactions, all_before_2025 = self.filter_transactions_by_date(page_transactions)
+            all_transactions.extend(filtered_transactions)
+            
+            print(f"    第1页: {len(page_transactions)} 条记录 (过滤后: {len(filtered_transactions)} 条)")
+            
+            # 如果第1页全部是2025年之前的记录，直接返回
+            if all_before_2025:
+                print(f"    ℹ️  第1页全部是2025年之前的记录，停止爬取")
+                print(f"    ✓ 完成: 共 {len(all_transactions)} 条{field}记录 (2025年及之后)")
+                return all_transactions, is_incremental_update
         
         # 获取总页数
         total_pages = self.get_total_pages(first_page_html)
@@ -519,30 +661,56 @@ class TransactionRecordScraper:
             else:
                 page_transactions = self.parse_rent_transactions(html)
             
-            # 过滤日期
-            filtered_transactions, all_before_2025 = self.filter_transactions_by_date(page_transactions)
-            all_transactions.extend(filtered_transactions)
-            
-            print(f"    第{page}页: {len(page_transactions)} 条记录 (过滤后: {len(filtered_transactions)} 条)")
-            
-            # 如果这一页全部是2025年之前的记录，停止爬取
-            if all_before_2025:
-                print(f"    ℹ️  第{page}页全部是2025年之前的记录，停止爬取")
-                break
+            # 增量模式：检查cutoff
+            if cutoff_date:
+                new_records = []
+                reached_cutoff = False
+                
+                for trans in page_transactions:
+                    trans_date = trans.get('date', '')
+                    if not trans_date:
+                        continue
+                    
+                    if self.compare_dates(trans_date, cutoff_date) <= 0:
+                        reached_cutoff = True
+                        break
+                    
+                    if self.is_date_after_2025(trans_date):
+                        new_records.append(trans)
+                
+                all_transactions.extend(new_records)
+                print(f"    第{page}页: {len(page_transactions)} 条记录 (新增: {len(new_records)} 条)")
+                
+                # 达到cutoff，停止爬取
+                if reached_cutoff:
+                    print(f"    ✓ 已达到现有数据日期，停止爬取")
+                    break
+            else:
+                # 非增量模式
+                filtered_transactions, all_before_2025 = self.filter_transactions_by_date(page_transactions)
+                all_transactions.extend(filtered_transactions)
+                
+                print(f"    第{page}页: {len(page_transactions)} 条记录 (过滤后: {len(filtered_transactions)} 条)")
+                
+                # 早停机制
+                if all_before_2025:
+                    print(f"    ℹ️  第{page}页全部是2025年之前的记录，停止爬取")
+                    break
         
-        print(f"    ✓ 完成: 共 {len(all_transactions)} 条{field}记录 (2025年及之后)")
-        return all_transactions
+        print(f"    ✓ 完成: 共 {len(all_transactions)} 条{field}记录")
+        return all_transactions, is_incremental_update
     
     def save_transactions(self, estate_id: str, transactions: List[Dict], 
-                         field: str, output_dir: str):
+                         field: str, output_dir: str, is_incremental: bool = False):
         """
-        保存成交记录到JSON文件
+        保存成交记录到JSON文件（支持增量更新）
         
         Args:
             estate_id: 屋苑ID
             transactions: 成交记录列表
             field: 'buy' 或 'rent'
             output_dir: 输出目录
+            is_incremental: 是否为增量更新
         """
         # 创建子文件夹
         folder_name = 'buy' if field == 'buy' else 'rent'
@@ -553,6 +721,20 @@ class TransactionRecordScraper:
         file_path = os.path.join(folder_path, f"{estate_id}.json")
         
         try:
+            # 增量模式：合并现有数据
+            if is_incremental:
+                existing_data, _ = self.load_existing_data(estate_id, field)
+                print(f"      🔄 更新前: 现有数据共{existing_data['total_records']}条")
+                if existing_data:
+                    merged_data = self.merge_transactions(existing_data, transactions)
+                    print(f"      🔄 增量更新: 新增{len(transactions)}条, 合并后共{merged_data['total_records']}条")
+                    
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        json.dump(merged_data, f, ensure_ascii=False, indent=2)
+                    print(f"      ✓ 已保存到: {file_path}")
+                    return
+            
+            # 非增量模式或无现有数据：直接保存
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump({
                     'estate_id': estate_id,
@@ -586,16 +768,16 @@ class TransactionRecordScraper:
             """处理单个屋苑"""
             try:
                 # 爬取买卖记录
-                buy_records = self.scrape_estate_transactions(estate_name, estate_id, 'buy')
+                buy_records, is_incremental_buy = self.scrape_estate_transactions(estate_name, estate_id, 'buy')
                 if buy_records:
-                    self.save_transactions(estate_id, buy_records, 'buy', output_dir)
+                    self.save_transactions(estate_id, buy_records, 'buy', output_dir, is_incremental_buy)
                 
                 time.sleep(1)  # 两种记录之间间隔
                 
                 # 爬取租房记录
-                rent_records = self.scrape_estate_transactions(estate_name, estate_id, 'rent')
+                rent_records, is_incremental_rent = self.scrape_estate_transactions(estate_name, estate_id, 'rent')
                 if rent_records:
-                    self.save_transactions(estate_id, rent_records, 'rent', output_dir)
+                    self.save_transactions(estate_id, rent_records, 'rent', output_dir, is_incremental_rent)
                 
                 return True
             except Exception as e:
@@ -632,20 +814,37 @@ def main():
     """主函数"""
     import argparse
     
-    parser = argparse.ArgumentParser(description='屋苑成交记录爬虫')
+    parser = argparse.ArgumentParser(description='屋苑成交记录爬虫 (支持增量更新)')
     parser.add_argument('--mapping', type=str, default='estates_mapping.json',
                        help='屋苑映射文件路径 (默认: estates_mapping.json)')
     parser.add_argument('--output', type=str, default='transaction_records',
                        help='输出目录 (默认: transaction_records)')
+    parser.add_argument('--data-dir', type=str, default='28hse/transaction_records',
+                       help='现有数据目录，用于增量模式 (默认: 28hse/transaction_records)')
     parser.add_argument('--workers', type=int, default=3,
                        help='并发线程数 (默认: 3)')
     parser.add_argument('--limit', type=int, default=0,
                        help='限制处理的屋苑数量，0表示全部 (默认: 0)')
+    parser.add_argument('--incremental', action='store_true',
+                       help='启用增量爬取模式，只爬取比现有数据更新的记录')
     
     args = parser.parse_args()
     
     # 创建爬虫实例
-    scraper = TransactionRecordScraper(max_workers=args.workers)
+    scraper = TransactionRecordScraper(
+        max_workers=args.workers,
+        incremental=args.incremental,
+        data_dir=args.data_dir
+    )
+    
+    # 显示模式
+    if args.incremental:
+        print("\n🔄 增量爬取模式已启用")
+        print(f"   现有数据目录: {args.data_dir}")
+        print(f"   将只爬取比现有数据更新的记录\n")
+    else:
+        print("\n🆕 全量爬取模式")
+        print("   将爬取2025年及之后的所有记录\n")
     
     # 加载屋苑映射
     print("正在加载屋苑映射...")
