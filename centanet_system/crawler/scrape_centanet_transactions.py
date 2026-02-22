@@ -23,6 +23,11 @@ from urllib3.util.ssl_ import create_urllib3_context
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
+class TooManyRequestsError(Exception):
+    """当API返回429 Too Many Requests错误时抛出此异常"""
+    pass
+
+
 class TLSAdapter(HTTPAdapter):
     """自定义TLS适配器以解决SSL连接问题"""
     
@@ -61,7 +66,9 @@ class CentanetTransactionScraper:
         max_retries: int = 3,
         estate_info_path: str = None,
         output_dir: str = None,
-        workers: int = 5
+        workers: int = 5,
+        skip_existing_files: bool = False,
+        skip_finished_file: str = None
     ):
         """
         初始化爬虫
@@ -72,15 +79,23 @@ class CentanetTransactionScraper:
             estate_info_path: 屋苑信息JSON文件路径
             output_dir: 输出目录，默认为当前目录下的transaction_record_[日期]
             workers: 并发线程数，默认5
+            skip_existing_files: 是否跳过已存在记录文件的屋苑
+            skip_finished_file: 已完成屋苑ID记录文件路径
         """
         self.session = requests.Session()
         self.request_interval = request_interval
         self.max_retries = max_retries
         self.workers = workers
+        self.skip_existing_files = skip_existing_files
+        self.skip_finished_file = skip_finished_file
         
         # 线程锁，用于保护共享资源
         self._lock = threading.Lock()
         self._progress_lock = threading.Lock()
+        self._file_lock = threading.Lock()  # 用于进度文件写入
+        
+        # 停止标志（当遇到Too Many Requests时设置为True）
+        self._stop_flag = threading.Event()
         
         # 线程本地存储，每个线程独立的session
         self._thread_local = threading.local()
@@ -128,6 +143,123 @@ class CentanetTransactionScraper:
         else:
             today = datetime.now().strftime('%Y%m%d')
             self.output_base_dir = f"transaction_record_{today}"
+        
+        # 进度记录文件（在爬取开始时创建）
+        self.progress_file = None
+        
+        # 已跳过的屋苑统计
+        self.stats['skipped_estates'] = 0
+    
+    def _init_progress_file(self):
+        """初始化进度记录文件"""
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        self.progress_file = os.path.join(
+            self.output_base_dir, 
+            f"finish_crawling_{timestamp}.txt"
+        )
+        # 确保目录存在
+        os.makedirs(os.path.dirname(self.progress_file), exist_ok=True)
+        print(f"✓ 进度文件已创建: {self.progress_file}")
+    
+    def _record_finished_estate(self, type_code: str):
+        """
+        记录已完成的屋苑ID到进度文件（线程安全）
+        
+        Args:
+            type_code: 屋苑ID
+        """
+        with self._file_lock:
+            with open(self.progress_file, 'a', encoding='utf-8') as f:
+                f.write(f"{type_code}\n")
+    
+    def get_finished_estates_from_files(self) -> set:
+        """
+        从输出目录中已存在的JSON文件提取已完成的屋苑ID
+        
+        Returns:
+            已完成屋苑ID集合
+        """
+        finished = set()
+        
+        # 检查 sale 目录
+        sale_dir = os.path.join(self.output_base_dir, 'sale')
+        if os.path.exists(sale_dir):
+            for filename in os.listdir(sale_dir):
+                if filename.endswith('.json'):
+                    type_code = filename[:-5]  # 移除 .json 后缀
+                    finished.add(type_code)
+        
+        # 检查 rent 目录
+        rent_dir = os.path.join(self.output_base_dir, 'rent')
+        if os.path.exists(rent_dir):
+            for filename in os.listdir(rent_dir):
+                if filename.endswith('.json'):
+                    type_code = filename[:-5]  # 移除 .json 后缀
+                    finished.add(type_code)
+        
+        return finished
+    
+    def get_finished_estates_from_progress_file(self, progress_file_path: str) -> set:
+        """
+        从进度记录文件中读取已完成的屋苑ID
+        
+        Args:
+            progress_file_path: 进度文件路径
+            
+        Returns:
+            已完成屋苑ID集合
+        """
+        finished = set()
+        
+        if not os.path.exists(progress_file_path):
+            print(f"⚠ 进度文件不存在: {progress_file_path}")
+            return finished
+        
+        try:
+            with open(progress_file_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    # 跳过注释行和空行
+                    if line and not line.startswith('#'):
+                        finished.add(line)
+            print(f"✓ 从进度文件加载了 {len(finished)} 个已完成屋苑ID")
+        except Exception as e:
+            print(f"✗ 读取进度文件失败: {e}")
+        
+        return finished
+    
+    def filter_estates(self, estates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        过滤已完成的屋苑
+        
+        Args:
+            estates: 原始屋苑列表
+            
+        Returns:
+            过滤后的屋苑列表
+        """
+        finished_ids = set()
+        
+        # 方式一：从已存在的文件中提取
+        if self.skip_existing_files:
+            file_finished = self.get_finished_estates_from_files()
+            finished_ids.update(file_finished)
+            print(f"  从已存在文件中找到 {len(file_finished)} 个已完成屋苑")
+        
+        # 方式二：从进度文件中读取
+        if self.skip_finished_file:
+            progress_finished = self.get_finished_estates_from_progress_file(self.skip_finished_file)
+            finished_ids.update(progress_finished)
+        
+        # 过滤
+        if finished_ids:
+            filtered = [e for e in estates if e.get('typeCode') not in finished_ids]
+            skipped = len(estates) - len(filtered)
+            self.stats['skipped_estates'] = skipped
+            print(f"  跳过 {skipped} 个已完成的屋苑，剩余 {len(filtered)} 个待处理")
+            return filtered
+        
+        return estates
     
     def _get_session(self) -> requests.Session:
         """
@@ -236,6 +368,14 @@ class CentanetTransactionScraper:
                 return data
                 
             except requests.exceptions.RequestException as e:
+                error_str = str(e)
+                # 检测 429 Too Many Requests 错误
+                if "Too Many Requests" in error_str or "429" in error_str:
+                    self._stop_flag.set()
+                    raise TooManyRequestsError(
+                        f"API返回429 Too Many Requests错误，爬取已停止。错误信息: {e}"
+                    )
+                
                 if attempt < self.max_retries - 1:
                     wait_time = self.request_interval * (attempt + 1) * 2
                     self._print_safe(f"    ⚠ 请求失败 (尝试 {attempt + 1}/{self.max_retries}): {e}")
@@ -401,6 +541,12 @@ class CentanetTransactionScraper:
             'error': None
         }
         
+        # 检查停止标志
+        if self._stop_flag.is_set():
+            result['success'] = False
+            result['error'] = '爬取已被停止（Too Many Requests）'
+            return result
+        
         self._print_safe(f"  [{thread_idx}/{total}] 处理: {estate_name} ({estate_type_code})")
         
         try:
@@ -423,6 +569,12 @@ class CentanetTransactionScraper:
             else:
                 self._print_safe(f"    [{thread_idx}] - 无销售记录")
             
+            # 再次检查停止标志
+            if self._stop_flag.is_set():
+                result['success'] = False
+                result['error'] = '爬取已被停止（Too Many Requests）'
+                return result
+            
             # 请求间隔
             time.sleep(self.request_interval)
             
@@ -444,7 +596,16 @@ class CentanetTransactionScraper:
                     self.stats['rent_records'] += len(rent_records)
             else:
                 self._print_safe(f"    [{thread_idx}] - 无租赁记录")
+            
+            # 成功完成后记录进度
+            self._record_finished_estate(estate_type_code)
                 
+        except TooManyRequestsError as e:
+            # Too Many Requests 错误，标记停止
+            result['success'] = False
+            result['error'] = str(e)
+            self._print_safe(f"\n!!! {e}")
+            self._print_safe("!!! 爬取已停止，请稍后重试")
         except Exception as e:
             result['success'] = False
             result['error'] = str(e)
@@ -468,26 +629,41 @@ class CentanetTransactionScraper:
             print("✗ 未加载屋苑信息，请先调用 load_estate_info() 或在初始化时提供 estate_info_path")
             return
         
-        self.stats['start_time'] = datetime.now()
-        
-        # 确定要爬取的屋苑范围
-        total_to_process = len(self.estates) - start_from
-        if max_estates:
-            total_to_process = min(total_to_process, max_estates)
-        
-        end_index = start_from + total_to_process
-        estates_to_process = self.estates[start_from:end_index]
-        
-        print(f"\n屋苑总数: {len(self.estates)}")
-        print(f"起始位置: {start_from}")
-        print(f"计划爬取: {total_to_process} 个屋苑")
-        print(f"并发线程: {self.workers}")
-        print(f"输出目录: {os.path.abspath(self.output_base_dir)}")
-        print(f"请求间隔: {self.request_interval} 秒\n")
-        
         # 创建输出目录
         os.makedirs(os.path.join(self.output_base_dir, 'sale'), exist_ok=True)
         os.makedirs(os.path.join(self.output_base_dir, 'rent'), exist_ok=True)
+        
+        # 初始化进度文件
+        self._init_progress_file()
+        
+        # 确定要爬取的屋苑范围
+        estates_to_process = self.estates[start_from:]
+        if max_estates:
+            estates_to_process = estates_to_process[:max_estates]
+        
+        # 应用过滤（跳过已完成的屋苑）
+        if self.skip_existing_files or self.skip_finished_file:
+            print("\n正在过滤已完成的屋苑...")
+            estates_to_process = self.filter_estates(estates_to_process)
+        
+        total_to_process = len(estates_to_process)
+        
+        if total_to_process == 0:
+            print("\n✓ 所有屋苑已完成爬取，无需处理")
+            return
+        
+        self.stats['start_time'] = datetime.now()
+        
+        print(f"\n屋苑总数: {len(self.estates)}")
+        print(f"跳过屋苑: {self.stats['skipped_estates']}")
+        print(f"计划爬取: {total_to_process} 个屋苑")
+        print(f"并发线程: {self.workers}")
+        print(f"输出目录: {os.path.abspath(self.output_base_dir)}")
+        print(f"进度文件: {self.progress_file}")
+        print(f"请求间隔: {self.request_interval} 秒\n")
+        
+        # 重置停止标志
+        self._stop_flag.clear()
         
         # 使用线程池并发处理
         with ThreadPoolExecutor(max_workers=self.workers) as executor:
@@ -504,6 +680,13 @@ class CentanetTransactionScraper:
             
             # 收集结果
             for future in as_completed(future_to_estate):
+                # 检查停止标志
+                if self._stop_flag.is_set():
+                    # 取消所有未完成的任务
+                    for f in future_to_estate:
+                        f.cancel()
+                    break
+                
                 estate = future_to_estate[future]
                 try:
                     result = future.result()
@@ -595,11 +778,23 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 使用示例:
+  # 基本用法
   python scrape_centanet_transactions.py --estate-info estate_info_20260221.json
+  
+  # 设置并发线程数
   python scrape_centanet_transactions.py --estate-info estate_info_20260221.json --workers 10
-  python scrape_centanet_transactions.py --estate-info estate_info_20260221.json --max-estates 100
-  python scrape_centanet_transactions.py --estate-info estate_info_20260221.json --start-from 500
-  python scrape_centanet_transactions.py --estate-info estate_info_20260221.json --interval 2.0
+  
+  # 跳过已存在记录文件的屋苑（断点续爬）
+  python scrape_centanet_transactions.py --estate-info estate_info_20260221.json --skip-existing-files
+  
+  # 从进度文件跳过已完成的屋苑
+  python scrape_centanet_transactions.py --estate-info estate_info_20260221.json --skip-finished-file finish_crawling_20260222_123456.txt
+  
+  # 组合使用：跳过已存在文件并从进度文件跳过
+  python scrape_centanet_transactions.py --estate-info estate_info_20260221.json --skip-existing-files --skip-finished-file finish_crawling_20260222_123456.txt
+  
+  # 其他参数
+  python scrape_centanet_transactions.py --estate-info estate_info_20260221.json --max-estates 100 --interval 2.0
         """
     )
     
@@ -645,6 +840,17 @@ def main():
         default=None,
         help='最大爬取屋苑数量（用于测试），默认不限制'
     )
+    parser.add_argument(
+        '--skip-existing-files',
+        action='store_true',
+        help='跳过已存在记录文件的屋苑（扫描sale和rent目录）'
+    )
+    parser.add_argument(
+        '--skip-finished-file',
+        type=str,
+        default=None,
+        help='指定已完成屋苑ID记录文件路径，跳过该文件中记录的屋苑'
+    )
     
     args = parser.parse_args()
     
@@ -654,7 +860,9 @@ def main():
         max_retries=args.retries,
         estate_info_path=args.estate_info,
         output_dir=args.output_dir,
-        workers=args.workers
+        workers=args.workers,
+        skip_existing_files=args.skip_existing_files,
+        skip_finished_file=args.skip_finished_file
     )
     
     # 开始爬取
