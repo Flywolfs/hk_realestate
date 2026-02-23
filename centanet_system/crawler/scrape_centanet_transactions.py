@@ -68,7 +68,8 @@ class CentanetTransactionScraper:
         output_dir: str = None,
         workers: int = 5,
         skip_existing_files: bool = False,
-        skip_finished_file: str = None
+        skip_finished_file: str = None,
+        earliest_date: str = None
     ):
         """
         初始化爬虫
@@ -81,6 +82,7 @@ class CentanetTransactionScraper:
             workers: 并发线程数，默认5
             skip_existing_files: 是否跳过已存在记录文件的屋苑
             skip_finished_file: 已完成屋苑ID记录文件路径
+            earliest_date: 最早日期字符串（格式 'YYYY-MM-DD'），用于过滤交易记录
         """
         self.session = requests.Session()
         self.request_interval = request_interval
@@ -88,6 +90,7 @@ class CentanetTransactionScraper:
         self.workers = workers
         self.skip_existing_files = skip_existing_files
         self.skip_finished_file = skip_finished_file
+        self.earliest_date = earliest_date
         
         # 线程锁，用于保护共享资源
         self._lock = threading.Lock()
@@ -391,17 +394,41 @@ class CentanetTransactionScraper:
                 
         return None
     
+    def _parse_date(self, date_str: str) -> Optional[Any]:
+        """
+        解析日期字符串，返回可比较的日期对象
+        
+        Args:
+            date_str: 日期字符串（格式可能是 'YYYY-MM-DD' 或 'YYYY-MM-DDTHH:MM:SS'）
+            
+        Returns:
+            date对象，解析失败返回None
+        """
+        if not date_str:
+            return None
+        try:
+            # 尝试解析 ISO 格式 (YYYY-MM-DDTHH:MM:SS)
+            if 'T' in date_str:
+                return datetime.fromisoformat(date_str.replace('Z', '+00:00')).date()
+            # 尝试解析简单格式 (YYYY-MM-DD)
+            return datetime.strptime(date_str[:10], '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            return None
+    
     def fetch_all_transactions_for_estate(
         self, 
         estate: Dict[str, Any],
-        post_type: str
+        post_type: str,
+        earliest_date: str = None
     ) -> List[Dict[str, Any]]:
         """
-        获取指定屋苑的所有交易记录（支持分页）
+        获取指定屋苑的所有交易记录（支持分页和日期过滤）
         
         Args:
             estate: 屋苑信息字典
             post_type: 记录类型 ("Sale" 或 "Rent")
+            earliest_date: 最早日期字符串（格式 'YYYY-MM-DD'），记录按日期降序排列，
+                          当最后一条记录日期早于此日期时停止获取
             
         Returns:
             交易记录列表
@@ -409,7 +436,15 @@ class CentanetTransactionScraper:
         estate_type_code = estate.get('typeCode', '')
         estate_name = estate.get('estateName', '未知屋苑')
         
+        # 解析最早日期
+        earliest_date_obj = None
+        if earliest_date:
+            earliest_date_obj = self._parse_date(earliest_date)
+            if earliest_date_obj:
+                self._print_safe(f"    最早日期过滤: {earliest_date}")
+        
         all_records = []
+        stopped_by_date = False
         
         # 第一次请求，获取总记录数
         first_response = self.fetch_transactions(
@@ -431,10 +466,22 @@ class CentanetTransactionScraper:
         
         # 添加第一批数据
         if 'data' in first_response and isinstance(first_response['data'], list):
-            all_records.extend(first_response['data'])
+            first_page_records = first_response['data']
+            all_records.extend(first_page_records)
+            
+            # 检查第一批数据的最后一条记录日期
+            if earliest_date_obj and first_page_records:
+                last_record = first_page_records[-1]
+                # 获取日期字段
+                record_date_str = last_record.get('insDate')
+                if record_date_str:
+                    record_date = self._parse_date(record_date_str)
+                    if record_date and record_date < earliest_date_obj:
+                        stopped_by_date = True
+                        self._print_safe(f"    ⏹ 最后一条记录日期 {record_date} 早于 {earliest_date}，停止获取")
         
-        # 计算是否需要分页
-        if total_count <= self.MAX_PAGE_SIZE:
+        # 计算是否需要分页（如果没有被日期过滤停止）
+        if total_count <= self.MAX_PAGE_SIZE or stopped_by_date:
             self._print_safe(f"    ✓ {self._get_post_type_name(post_type)}记录: {len(all_records)} 条 (共1页)")
             return all_records
         
@@ -459,11 +506,26 @@ class CentanetTransactionScraper:
             )
             
             if response and 'data' in response and isinstance(response['data'], list):
-                all_records.extend(response['data'])
+                page_records = response['data']
+                all_records.extend(page_records)
+                
+                # 检查本页最后一条记录日期
+                if earliest_date_obj and page_records:
+                    last_record = page_records[-1]
+                    record_date_str = last_record.get('insDate')
+                    if record_date_str:
+                        record_date = self._parse_date(record_date_str)
+                        if record_date and record_date < earliest_date_obj:
+                            stopped_by_date = True
+                            self._print_safe(f"    ⏹ 第{page + 1}页最后记录日期 {record_date} 早于 {earliest_date}，停止获取")
+                            break
             else:
                 self._print_safe(f"    ⚠ 获取 {estate_name} 第 {page + 1} 页数据失败")
         
-        self._print_safe(f"    ✓ {self._get_post_type_name(post_type)}记录: {len(all_records)} 条")
+        if stopped_by_date:
+            self._print_safe(f"    ✓ {self._get_post_type_name(post_type)}记录: {len(all_records)} 条 (因日期过滤提前结束)")
+        else:
+            self._print_safe(f"    ✓ {self._get_post_type_name(post_type)}记录: {len(all_records)} 条")
         
         return all_records
     
@@ -554,7 +616,8 @@ class CentanetTransactionScraper:
             self._print_safe(f"    [{thread_idx}] 获取销售记录...")
             sale_records = self.fetch_all_transactions_for_estate(
                 estate=estate,
-                post_type=self.POST_TYPE_SALE
+                post_type=self.POST_TYPE_SALE,
+                earliest_date=self.earliest_date
             )
             
             if sale_records:
@@ -582,7 +645,8 @@ class CentanetTransactionScraper:
             self._print_safe(f"    [{thread_idx}] 获取租赁记录...")
             rent_records = self.fetch_all_transactions_for_estate(
                 estate=estate,
-                post_type=self.POST_TYPE_RENT
+                post_type=self.POST_TYPE_RENT,
+                earliest_date=self.earliest_date
             )
             
             if rent_records:
@@ -793,6 +857,9 @@ def main():
   # 组合使用：跳过已存在文件并从进度文件跳过
   python scrape_centanet_transactions.py --estate-info estate_info_20260221.json --skip-existing-files --skip-finished-file finish_crawling_20260222_123456.txt
   
+  # 使用最早日期过滤（只获取2025-01-01之后的记录）
+  python scrape_centanet_transactions.py --estate-info estate_info_20260221.json --earliest-date 2025-01-01
+  
   # 其他参数
   python scrape_centanet_transactions.py --estate-info estate_info_20260221.json --max-estates 100 --interval 2.0
         """
@@ -851,6 +918,12 @@ def main():
         default=None,
         help='指定已完成屋苑ID记录文件路径，跳过该文件中记录的屋苑'
     )
+    parser.add_argument(
+        '--earliest-date',
+        type=str,
+        default=None,
+        help='最早日期过滤（格式 YYYY-MM-DD），当记录日期早于此日期时停止获取'
+    )
     
     args = parser.parse_args()
     
@@ -862,7 +935,8 @@ def main():
         output_dir=args.output_dir,
         workers=args.workers,
         skip_existing_files=args.skip_existing_files,
-        skip_finished_file=args.skip_finished_file
+        skip_finished_file=args.skip_finished_file,
+        earliest_date=args.earliest_date
     )
     
     # 开始爬取
