@@ -19,7 +19,6 @@ CORS(app)  # 允许跨域访问
 BASE_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 data_loader = DataLoader(BASE_PATH)
 
-
 @app.route('/api/estates', methods=['GET'])
 def get_all_estates():
     """

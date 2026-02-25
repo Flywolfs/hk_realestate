@@ -15,8 +15,8 @@ class DataLoader:
         :param base_path: 项目根目录路径
         """
         self.base_path = base_path
-        self.estate_static_path = os.path.join(base_path, 'estate_static_info_convert.json')
-        self.rent_ratio_path = os.path.join(base_path, 'average_rent_sale_ratio.json')
+        self.estate_static_path = '/home/zhangchi/Documents/28hse/centanet_system/crawler/estate_info_20260221_convert.json'
+        self.rent_ratio_path = '/home/zhangchi/Documents/28hse/centanet_system/crawler/average_rent_sale_ratio.json'
         self.housing_types_path = os.path.join(base_path, 'housing_types.json')
     
     @lru_cache(maxsize=1)

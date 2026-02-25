@@ -12,7 +12,7 @@
     <div class="legend-labels">
       <span>0%</span>
       <span class="pivot-label">4%</span>
-      <span>10%+</span>
+      <span>7%+</span>
     </div>
     <div class="legend-description">
       <div class="desc-item">
