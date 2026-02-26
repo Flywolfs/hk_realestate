@@ -147,7 +147,10 @@ def cluster_by_room_type(transactions: List[Dict]) -> Dict[int, List[Dict]]:
         
         if cluster_areas:
             avg_area = int(round(np.mean(cluster_areas)))
-            result_clusters[avg_area] = cluster_trans
+            if avg_area in result_clusters:
+                result_clusters[avg_area].extend(cluster_trans)
+            else:
+                result_clusters[avg_area] = cluster_trans
     
     return result_clusters
 

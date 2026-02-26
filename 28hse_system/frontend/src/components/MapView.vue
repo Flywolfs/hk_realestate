@@ -96,8 +96,12 @@
 
 <script>
 import L from 'leaflet'
+import { Chart, registerables } from 'chart.js'
 import { getAllEstates, getEstateDetail, getRentRatioStats, getPrimarySchools } from '../utils/api.js'
 import { getRentRatioColor } from '../utils/colorUtils.js'
+
+// 注册Chart.js组件
+Chart.register(...registerables)
 
 export default {
   name: 'MapView',
@@ -223,6 +227,20 @@ export default {
         
         const detail = response.data
         
+        // 检查是否有时序数据
+        const hasTimeseries = detail.overall_ratio_timeseries && 
+                             Object.keys(detail.overall_ratio_timeseries).length > 0
+        
+        // 将时序数据存储在marker上，供后续使用
+        if (hasTimeseries) {
+          marker._chartData = {
+            estateId: estateId,
+            timeseries: detail.overall_ratio_timeseries
+          }
+        } else {
+          marker._chartData = null
+        }
+        
         // 构建Popup内容
         const popupContent = `
           <div class="estate-popup">
@@ -246,9 +264,18 @@ export default {
             ` : ''}
             ${detail.rent_ratio ? `
               <div class="popup-section highlight">
-                <strong>总体租售比:</strong> ${detail.rent_ratio.toFixed(2)}%
+                <strong>最新租售比:</strong> ${detail.rent_ratio.toFixed(2)}%
               </div>
-            ` : '<div class="popup-section"><strong>总体租售比:</strong> 暂无数据</div>'}
+            ` : '<div class="popup-section"><strong>租售比:</strong> 暂无数据</div>'}
+            
+            ${hasTimeseries ? `
+              <div class="popup-section chart-section">
+                <strong>租售比趋势:</strong>
+                <div class="chart-container">
+                  <canvas id="chart-${estateId}"></canvas>
+                </div>
+              </div>
+            ` : ''}
             
             ${detail.room_type_ratio && Object.keys(detail.room_type_ratio).length > 0 ? `
               <div class="popup-section room-type-section">
@@ -266,14 +293,135 @@ export default {
           </div>
         `
         
-        marker.bindPopup(popupContent, {
-          maxWidth: 300,
-          className: 'custom-popup'
-        }).openPopup()
+        // 如果popup不存在，创建并绑定
+        if (!marker.getPopup()) {
+          marker.bindPopup(popupContent, {
+            maxWidth: 400,
+            minWidth: 350,
+            className: 'custom-popup'
+          })
+          
+          // 只在第一次创建时绑定popupopen事件
+          marker.on('popupopen', () => {
+            // 使用marker上存储的图表数据
+            if (marker._chartData) {
+              setTimeout(() => {
+                this.renderTrendChart(marker._chartData.estateId, marker._chartData.timeseries)
+              }, 100)
+            }
+          })
+        } else {
+          // popup已存在，只更新内容
+          marker.getPopup().setContent(popupContent)
+        }
+        
+        // 打开popup
+        marker.openPopup()
+        
+        // 如果有图表数据，立即绘制（针对已打开的popup）
+        if (hasTimeseries && marker.isPopupOpen()) {
+          setTimeout(() => {
+            this.renderTrendChart(estateId, detail.overall_ratio_timeseries)
+          }, 100)
+        }
       } catch (err) {
         console.error('获取小区详情失败:', err)
         marker.bindPopup('<div class="error">加载详情失败</div>').openPopup()
       }
+    },
+    
+    renderTrendChart(estateId, timeseriesData) {
+      const canvasId = `chart-${estateId}`
+      const canvas = document.getElementById(canvasId)
+      
+      if (!canvas) {
+        console.warn(`找不到图表canvas元素: ${canvasId}`)
+        return
+      }
+      
+      // 销毁所有相关的旧图表
+      const existingChart = Chart.getChart(canvasId)
+      if (existingChart) {
+        existingChart.destroy()
+      }
+      
+      // 再次检查canvas是否还在DOM中
+      if (!document.getElementById(canvasId)) {
+        console.warn('Canvas元素已被移除')
+        return
+      }
+      
+      // 准备数据
+      const months = Object.keys(timeseriesData).sort()
+      const values = months.map(month => timeseriesData[month])
+      
+      // 计算纵轴范围
+      const minValue = Math.min(...values)
+      const maxValue = Math.max(...values)
+      const padding = (maxValue - minValue) * 0.1 || 0.5
+      
+      // 绘制图表
+      new Chart(canvas, {
+        type: 'line',
+        data: {
+          labels: months,
+          datasets: [{
+            label: '租售比 (%)',
+            data: values,
+            borderColor: '#4CAF50',
+            backgroundColor: 'rgba(76, 175, 80, 0.1)',
+            tension: 0.3,
+            fill: true,
+            pointRadius: 4,
+            pointHoverRadius: 6
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: false
+            },
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  return `租售比: ${context.parsed.y.toFixed(2)}%`
+                }
+              }
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: false,
+              min: Math.max(0, minValue - padding),
+              max: maxValue + padding,
+              ticks: {
+                callback: function(value) {
+                  return value.toFixed(1) + '%'
+                }
+              },
+              title: {
+                display: true,
+                text: '租售比 (%)'
+              }
+            },
+            x: {
+              ticks: {
+                maxRotation: 45,
+                minRotation: 45,
+                font: {
+                  size: 10
+                }
+              },
+              title: {
+                display: true,
+                text: '月份'
+              }
+            }
+          }
+        }
+      })
     },
     
     // 公开方法:定位到指定小区
@@ -613,6 +761,26 @@ export default {
   padding: 10px;
   border-radius: 4px;
   margin-top: 10px;
+}
+
+.popup-section.chart-section {
+  background: #f9f9f9;
+  padding: 12px;
+  border-radius: 4px;
+  margin-top: 10px;
+}
+
+.chart-container {
+  position: relative;
+  width: 100%;
+  height: 200px;
+  margin-top: 8px;
+}
+
+.popup-section.chart-section canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
 }
 
 .popup-section.room-type-section strong {

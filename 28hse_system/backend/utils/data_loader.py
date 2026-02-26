@@ -89,14 +89,27 @@ class DataLoader:
             if not coordinates or not coordinates.get('latitude') or not coordinates.get('longitude'):
                 continue
             
-            # 整合租售比数据（新数据结构）
+            # 整合租售比数据（支持时序数据）
             rent_ratio_data = rent_ratios.get(estate_id, {})
             if isinstance(rent_ratio_data, dict):
-                overall_ratio = rent_ratio_data.get('overall_ratio')
+                overall_ratio_timeseries = rent_ratio_data.get('overall_ratio', {})
                 room_type_ratio = rent_ratio_data.get('room_type_ratio', {})
+                
+                # 提取最新月份的租售比（用于地图颜色显示）
+                if isinstance(overall_ratio_timeseries, dict) and overall_ratio_timeseries:
+                    # 获取字典中最后一个值（最新月份）
+                    latest_ratio = list(overall_ratio_timeseries.values())[-1]
+                elif isinstance(overall_ratio_timeseries, (int, float)):
+                    # 兼容旧格式（单一数值）
+                    latest_ratio = overall_ratio_timeseries
+                    overall_ratio_timeseries = {}
+                else:
+                    latest_ratio = None
+                    overall_ratio_timeseries = {}
             else:
                 # 兼容旧数据结构
-                overall_ratio = rent_ratio_data
+                latest_ratio = rent_ratio_data if isinstance(rent_ratio_data, (int, float)) else None
+                overall_ratio_timeseries = {}
                 room_type_ratio = {}
             
             # 判断房屋类型
@@ -117,7 +130,8 @@ class DataLoader:
                 'name': estate_data.get('name', ''),
                 'address': estate_data.get('address', ''),
                 'coordinates': coordinates,
-                'rent_ratio': overall_ratio,
+                'rent_ratio': latest_ratio,  # 最新月份租售比（用于颜色映射）
+                'overall_ratio_timeseries': overall_ratio_timeseries,  # 完整时序数据
                 'room_type_ratio': room_type_ratio,
                 'housing_type': housing_type,
                 'establish_year': establish_year,
@@ -142,13 +156,24 @@ class DataLoader:
         # 整合详细信息
         basic_info = estate_data.get('basic_info', {})
         
-        # 处理新的租售比数据结构
+        # 处理时序租售比数据结构
         rent_ratio_data = rent_ratios.get(estate_id, {})
         if isinstance(rent_ratio_data, dict):
-            overall_ratio = rent_ratio_data.get('overall_ratio')
+            overall_ratio_timeseries = rent_ratio_data.get('overall_ratio', {})
             room_type_ratio = rent_ratio_data.get('room_type_ratio', {})
+            
+            # 提取最新月份租售比
+            if isinstance(overall_ratio_timeseries, dict) and overall_ratio_timeseries:
+                latest_ratio = list(overall_ratio_timeseries.values())[-1]
+            elif isinstance(overall_ratio_timeseries, (int, float)):
+                latest_ratio = overall_ratio_timeseries
+                overall_ratio_timeseries = {}
+            else:
+                latest_ratio = None
+                overall_ratio_timeseries = {}
         else:
-            overall_ratio = rent_ratio_data
+            latest_ratio = rent_ratio_data if isinstance(rent_ratio_data, (int, float)) else None
+            overall_ratio_timeseries = {}
             room_type_ratio = {}
         
         detail = {
@@ -156,7 +181,8 @@ class DataLoader:
             'name': estate_data.get('name', ''),
             'address': estate_data.get('address', ''),
             'coordinates': estate_data.get('coordinates', {}),
-            'rent_ratio': overall_ratio,
+            'rent_ratio': latest_ratio,  # 最新月份租售比
+            'overall_ratio_timeseries': overall_ratio_timeseries,  # 完整时序数据
             'room_type_ratio': room_type_ratio,
             'establish_year': basic_info.get('establish_year', estate_data.get('establish_year', '')),
             'developer': basic_info.get('developer', estate_data.get('developer', '')),
@@ -187,16 +213,25 @@ class DataLoader:
                 'data': {}
             }
         
-        # 提取overall_ratio用于统计
+        # 提取overall_ratio用于统计（提取最新月份值）
         overall_ratios = {}
         for estate_id, ratio_data in rent_ratios.items():
             if isinstance(ratio_data, dict):
-                overall_ratio = ratio_data.get('overall_ratio')
+                overall_ratio_timeseries = ratio_data.get('overall_ratio', {})
+                # 提取最新月份的租售比
+                if isinstance(overall_ratio_timeseries, dict) and overall_ratio_timeseries:
+                    latest_ratio = list(overall_ratio_timeseries.values())[-1]
+                elif isinstance(overall_ratio_timeseries, (int, float)):
+                    # 兼容旧格式
+                    latest_ratio = overall_ratio_timeseries
+                else:
+                    latest_ratio = None
             else:
-                overall_ratio = ratio_data
+                # 兼容旧数据结构
+                latest_ratio = ratio_data if isinstance(ratio_data, (int, float)) else None
             
-            if overall_ratio is not None:
-                overall_ratios[estate_id] = overall_ratio
+            if latest_ratio is not None:
+                overall_ratios[estate_id] = latest_ratio
         
         values = list(overall_ratios.values())
         

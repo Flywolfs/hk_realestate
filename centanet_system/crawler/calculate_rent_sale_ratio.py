@@ -18,7 +18,8 @@ import os
 import logging
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
 import numpy as np
 
 # 配置日志
@@ -167,7 +168,10 @@ def cluster_by_room_type(transactions: List[Dict], min_date: Optional[str] = Non
         
         if cluster_areas:
             avg_area = int(round(np.mean(cluster_areas)))
-            result_clusters[avg_area] = cluster_trans
+            if avg_area in result_clusters:
+                result_clusters[avg_area].extend(cluster_trans)
+            else:
+                result_clusters[avg_area] = cluster_trans
     
     return result_clusters
 
@@ -270,6 +274,122 @@ def calculate_ratio_for_cluster(sale_prices: List[float], rent_prices: List[floa
     return round(rent_sale_ratio * 100, 4)
 
 
+def get_month_key(date_obj: datetime) -> str:
+    """将日期转换为YYYY-MM格式的月份key"""
+    return date_obj.strftime("%Y-%m")
+
+
+def generate_monthly_ratios(buy_transactions: List[Dict], rent_transactions: List[Dict],
+                            min_date: Optional[str] = None,
+                            enable_outlier_removal: bool = True) -> Dict[str, float]:
+    """
+    按月计算租售比，从min_date开始每个月生成一个租售比
+    如果某个月没有数据，使用上个月的最后一个价格数据填补
+    
+    Args:
+        buy_transactions: 买卖交易记录列表
+        rent_transactions: 出租交易记录列表
+        min_date: 最早日期限制，格式为YYYY-MM-DD
+        enable_outlier_removal: 是否启用异常值剔除
+        
+    Returns:
+        字典 {月份(YYYY-MM): 租售比}
+    """
+    monthly_ratios = {}
+    
+    # 解析最小日期
+    start_date = datetime.strptime(min_date, "%Y-%m-%d") if min_date else datetime(2025, 1, 1)
+    end_date = datetime.now()
+    
+    # 按月份聚合买卖数据
+    buy_monthly = {}  # {月份: [price_per_sqft列表]}
+    for trans in buy_transactions:
+        date_str = trans.get('date')
+        if not date_str:
+            continue
+        try:
+            trans_date = datetime.strptime(date_str, "%Y-%m-%d")
+            if trans_date < start_date:
+                continue
+            month_key = get_month_key(trans_date)
+            price = trans.get('price_per_sqft')
+            if price and isinstance(price, (int, float)) and price > 0:
+                if month_key not in buy_monthly:
+                    buy_monthly[month_key] = []
+                buy_monthly[month_key].append(float(price))
+        except (ValueError, TypeError):
+            continue
+    
+    # 按月份聚合出租数据
+    rent_monthly = {}  # {月份: [rent_per_sqft列表]}
+    for trans in rent_transactions:
+        date_str = trans.get('date')
+        if not date_str:
+            continue
+        try:
+            trans_date = datetime.strptime(date_str, "%Y-%m-%d")
+            if trans_date < start_date:
+                continue
+            month_key = get_month_key(trans_date)
+            rent_price = trans.get('rent_per_sqft')
+            if rent_price and isinstance(rent_price, (int, float)) and rent_price > 0:
+                if month_key not in rent_monthly:
+                    rent_monthly[month_key] = []
+                rent_monthly[month_key].append(float(rent_price))
+        except (ValueError, TypeError):
+            continue
+    
+    # 获取所有需要计算的月份
+    all_months = set(buy_monthly.keys()) | set(rent_monthly.keys())
+    if not all_months:
+        return monthly_ratios
+    
+    # 确定计算范围：从min_date到最新数据月份
+    min_month = get_month_key(start_date)
+    max_month = max(all_months) if all_months else min_month
+    
+    # 生成连续的月份列表
+    current_date = start_date
+    months_list = []
+    while get_month_key(current_date) <= max_month:
+        months_list.append(get_month_key(current_date))
+        current_date += relativedelta(months=1)
+    
+    # 用于保存上个月的最后一个价格（用于填补缺失数据）
+    last_sale_prices = []  # 上个月的销售价格列表
+    last_rent_prices = []  # 上个月的出租价格列表
+    
+    # 按月计算租售比
+    for month_key in months_list:
+        # 获取当前月的买卖数据
+        if month_key in buy_monthly and buy_monthly[month_key]:
+            current_sale_prices = buy_monthly[month_key]
+            last_sale_prices = current_sale_prices.copy()
+        else:
+            # 使用上个月的数据填补
+            current_sale_prices = last_sale_prices.copy()
+        
+        # 获取当前月的出租数据
+        if month_key in rent_monthly and rent_monthly[month_key]:
+            current_rent_prices = rent_monthly[month_key]
+            last_rent_prices = current_rent_prices.copy()
+        else:
+            # 使用上个月的数据填补
+            current_rent_prices = last_rent_prices.copy()
+        
+        # 计算该月的租售比
+        if current_sale_prices and current_rent_prices:
+            ratio = calculate_ratio_for_cluster(
+                current_sale_prices,
+                current_rent_prices,
+                enable_outlier_removal
+            )
+            if ratio is not None:
+                monthly_ratios[month_key] = ratio
+    
+    return monthly_ratios
+
+
 def calculate_rent_sale_ratio(base_dir: str = "./28hse/transaction_records_trans",
                                enable_outlier_removal: bool = True,
                                min_date: Optional[str] = None) -> Dict:
@@ -343,27 +463,28 @@ def calculate_rent_sale_ratio(base_dir: str = "./28hse/transaction_records_trans
         logger.info(f"  买卖数据户型聚类: {len(buy_clusters)} 个户型")
         logger.info(f"  出租数据户型聚类: {len(rent_clusters)} 个户型")
         
-        # 计算整体租售比（应用日期限制）
-        overall_sale_prices = extract_valid_values(buy_transactions, 'price_per_sqft', min_date)
-        overall_rent_prices = extract_valid_values(rent_transactions, 'rent_per_sqft', min_date)
-        
-        overall_ratio = calculate_ratio_for_cluster(
-            overall_sale_prices, 
-            overall_rent_prices, 
+        # 计算按月租售比（从min_date开始，每个月一个租售比）
+        monthly_ratios = generate_monthly_ratios(
+            buy_transactions,
+            rent_transactions,
+            min_date,
             enable_outlier_removal
         )
         
-        if overall_ratio is None:
-            logger.warning(f"  跳过小区 {estate_id}: 整体数据不足以计算租售比")
+        if not monthly_ratios:
+            logger.warning(f"  跳过小区 {estate_id}: 没有足够的数据计算租售比")
             skipped_estates.append({
                 'estate_id': estate_id,
-                'reason': '整体数据不足',
-                'sale_count': len(overall_sale_prices),
-                'rent_count': len(overall_rent_prices)
+                'reason': '没有足够的数据计算租售比',
+                'buy_count': len(buy_transactions),
+                'rent_count': len(rent_transactions)
             })
             continue
         
-        logger.info(f"  整体租售比: {overall_ratio:.4f}%")
+        # 获取最新的租售比用于日志显示
+        latest_month = max(monthly_ratios.keys())
+        latest_ratio = monthly_ratios[latest_month]
+        logger.info(f"  按月租售比: 共 {len(monthly_ratios)} 个月份，最新({latest_month}): {latest_ratio:.4f}%")
         
         # 计算各户型的租售比
         room_type_ratios = {}
@@ -430,7 +551,7 @@ def calculate_rent_sale_ratio(base_dir: str = "./28hse/transaction_records_trans
         
         # 保存结果
         results[estate_id] = {
-            "overall_ratio": overall_ratio,
+            "overall_ratio": monthly_ratios,
             "room_type_ratio": room_type_ratios
         }
         
@@ -458,19 +579,46 @@ def save_results(results: Dict, output_file: str = "average_rent_sale_ratio.json
     
     Args:
         results: 租售比结果字典 {estate_id: {overall_ratio, room_type_ratio}}
+                 其中 overall_ratio 是字典 {月份: 租售比}
         output_file: 输出文件名
     """
     try:
+        # 对 results 进行排序，确保 estate_id 按数字顺序排列
+        # 同时对每个小区内的 room_type_ratio 也按数字顺序排序
+        # 对 overall_ratio 按月份排序
+        sorted_results = {}
+        for estate_id in sorted(results.keys(), key=lambda x: int(x) if x.isdigit() else x):
+            estate_data = results[estate_id]
+            # 对 room_type_ratio 按面积（数字）排序
+            sorted_room_types = {}
+            if "room_type_ratio" in estate_data:
+                sorted_room_types = {
+                    k: estate_data["room_type_ratio"][k]
+                    for k in sorted(estate_data["room_type_ratio"].keys(), key=lambda x: int(x) if x.isdigit() else x)
+                }
+            # 对 overall_ratio 按月份排序
+            sorted_monthly_ratios = {}
+            if "overall_ratio" in estate_data and estate_data["overall_ratio"]:
+                sorted_monthly_ratios = {
+                    k: estate_data["overall_ratio"][k]
+                    for k in sorted(estate_data["overall_ratio"].keys())
+                }
+            sorted_results[estate_id] = {
+                "overall_ratio": sorted_monthly_ratios,
+                "room_type_ratio": sorted_room_types
+            }
+        
         # 添加元数据
         output_data = {
             "metadata": {
-                "description": "平均租售比计算结果（整体及分户型）",
+                "description": "平均租售比计算结果（按月及分户型）",
                 "unit": "百分比 (%)",
                 "formula": "(月租金单价 * 12) / 售价单价 * 100",
                 "total_estates": len(results),
-                "clustering_method": "基于room_count字段，room_count=-1时根据面积差值<8%进行聚类"
+                "clustering_method": "基于room_count字段，room_count=-1时根据面积差值<8%进行聚类",
+                "overall_ratio_format": "按月计算，key为YYYY-MM格式，value为当月租售比"
             },
-            "data": results
+            "data": sorted_results
         }
         
         with open(output_file, 'w', encoding='utf-8') as f:
@@ -480,14 +628,19 @@ def save_results(results: Dict, output_file: str = "average_rent_sale_ratio.json
         
         # 输出一些统计信息
         if results:
-            overall_ratios = [v["overall_ratio"] for v in results.values() if v.get("overall_ratio")]
+            # 统计所有月份的租售比
+            all_monthly_ratios = []
+            for estate_data in results.values():
+                monthly_ratios = estate_data.get("overall_ratio", {})
+                all_monthly_ratios.extend(monthly_ratios.values())
             
-            if overall_ratios:
-                logger.info(f"\n整体租售比统计:")
-                logger.info(f"  最小值: {min(overall_ratios):.4f}%")
-                logger.info(f"  最大值: {max(overall_ratios):.4f}%")
-                logger.info(f"  平均值: {np.mean(overall_ratios):.4f}%")
-                logger.info(f"  中位数: {np.median(overall_ratios):.4f}%")
+            if all_monthly_ratios:
+                logger.info(f"\n按月租售比统计:")
+                logger.info(f"  总记录数: {len(all_monthly_ratios)} 个月份数据")
+                logger.info(f"  最小值: {min(all_monthly_ratios):.4f}%")
+                logger.info(f"  最大值: {max(all_monthly_ratios):.4f}%")
+                logger.info(f"  平均值: {np.mean(all_monthly_ratios):.4f}%")
+                logger.info(f"  中位数: {np.median(all_monthly_ratios):.4f}%")
             
             # 统计户型数据
             total_room_types = sum(len(v.get("room_type_ratio", {})) for v in results.values())
