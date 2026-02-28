@@ -769,15 +769,15 @@ class TransactionRecordScraper:
             try:
                 # 爬取买卖记录
                 buy_records, is_incremental_buy = self.scrape_estate_transactions(estate_name, estate_id, 'buy')
-                if buy_records:
-                    self.save_transactions(estate_id, buy_records, 'buy', output_dir, is_incremental_buy)
+                # if buy_records:
+                self.save_transactions(estate_id, buy_records, 'buy', output_dir, is_incremental_buy)
                 
                 time.sleep(1)  # 两种记录之间间隔
                 
                 # 爬取租房记录
                 rent_records, is_incremental_rent = self.scrape_estate_transactions(estate_name, estate_id, 'rent')
-                if rent_records:
-                    self.save_transactions(estate_id, rent_records, 'rent', output_dir, is_incremental_rent)
+                # if rent_records:
+                self.save_transactions(estate_id, rent_records, 'rent', output_dir, is_incremental_rent)
                 
                 return True
             except Exception as e:
