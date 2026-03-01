@@ -1,0 +1,25 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/search/search",
+    "pages/estate-detail/estate-detail"
+  ],
+  "window": {
+    "backgroundTextStyle": "light",
+    "navigationBarBackgroundColor": "#4CAF50",
+    "navigationBarTitleText": "香港小区租售比",
+    "navigationBarTextStyle": "white",
+    "enablePullDownRefresh": false
+  },
+  "permission": {
+    "scope.userLocation": {
+      "desc": "用于显示您在地图上的位置"
+    }
+  },
+  "requiredPrivateInfos": [
+    "getLocation"
+  ],
+  "sitemapLocation": "sitemap.json",
+  "style": "v2",
+  "lazyCodeLoading": "requiredComponents"
+}

@@ -1,0 +1,111 @@
+/* pages/estate-detail/estate-detail.wxss - 小区详情页样式 */
+
+.detail-container {
+  min-height: 100vh;
+  background-color: #f5f5f5;
+  padding: 20rpx;
+}
+
+/* 标题区域 */
+.header-section {
+  background-color: #fff;
+  padding: 40rpx 30rpx;
+  border-radius: 16rpx;
+  margin-bottom: 20rpx;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.08);
+}
+
+.estate-name {
+  font-size: 40rpx;
+  font-weight: 600;
+  color: #333;
+  display: block;
+  margin-bottom: 20rpx;
+}
+
+.ratio-badge {
+  display: inline-block;
+  padding: 12rpx 24rpx;
+  border-radius: 30rpx;
+  color: #fff;
+  font-size: 28rpx;
+  font-weight: 500;
+}
+
+/* 信息卡片 */
+.info-card {
+  background-color: #fff;
+  padding: 30rpx;
+  border-radius: 16rpx;
+  margin-bottom: 20rpx;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.08);
+}
+
+.card-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 30rpx;
+  padding-bottom: 20rpx;
+  border-bottom: 1rpx solid #f0f0f0;
+}
+
+.info-row {
+  display: flex;
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid #f5f5f5;
+}
+
+.info-row:last-child {
+  border-bottom: none;
+}
+
+.info-label {
+  width: 200rpx;
+  flex-shrink: 0;
+  font-size: 28rpx;
+  color: #999;
+}
+
+.info-value {
+  flex: 1;
+  font-size: 28rpx;
+  color: #333;
+}
+
+/* 操作按钮 */
+.action-buttons {
+  display: flex;
+  gap: 20rpx;
+  padding: 20rpx 0;
+}
+
+.action-btn {
+  flex: 1;
+  height: 80rpx;
+  line-height: 80rpx;
+  border-radius: 40rpx;
+  font-size: 28rpx;
+  border: none;
+}
+
+.action-btn.primary {
+  background-color: #4CAF50;
+  color: #fff;
+}
+
+.action-btn:not(.primary) {
+  background-color: #fff;
+  color: #4CAF50;
+  border: 1rpx solid #4CAF50;
+}
+
+/* 加载中 */
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 100rpx 0;
+  color: #999;
+  font-size: 28rpx;
+}

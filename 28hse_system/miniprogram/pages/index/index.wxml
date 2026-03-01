@@ -1,0 +1,54 @@
+<!-- pages/index/index.wxml - 首页地图 -->
+<view class="container">
+  <!-- 地图容器 -->
+  <map 
+    id="estate-map"
+    class="map"
+    latitude="{{centerLat}}"
+    longitude="{{centerLng}}"
+    scale="{{scale}}"
+    markers="{{markers}}"
+    show-location="{{true}}"
+    bindmarkertap="onMarkerTap"
+    bindregionchange="onRegionChange"
+  >
+    <!-- 地图控件 -->
+    <cover-view class="map-controls">
+      <cover-view class="control-btn search-btn" bindtap="showSearch">
+        <cover-view class="btn-text">搜索</cover-view>
+      </cover-view>
+      <cover-view class="control-btn legend-btn" bindtap="toggleLegend">
+        <cover-view class="btn-text">图例</cover-view>
+      </cover-view>
+      <cover-view class="control-btn locate-btn" bindtap="relocate">
+        <cover-view class="btn-text">重置</cover-view>
+      </cover-view>
+    </cover-view>
+  </map>
+
+  <!-- 底部统计面板 -->
+  <view class="stats-panel-container" wx:if="{{showStats}}">
+    <stats-panel 
+      estate-count="{{estateCount}}"
+      avg-ratio="{{avgRatio}}"
+    ></stats-panel>
+  </view>
+
+  <!-- 色彩图例弹窗 -->
+  <view class="legend-modal" wx:if="{{showLegend}}" bindtap="hideLegend">
+    <view class="legend-content" catchtap="preventClose">
+      <color-legend 
+        min-value="{{minRatio}}"
+        max-value="{{maxRatio}}"
+        bind:close="hideLegend"
+      ></color-legend>
+    </view>
+  </view>
+
+  <!-- 加载提示 -->
+  <view class="loading-mask" wx:if="{{loading}}">
+    <view class="loading-content">
+      <text>加载中...</text>
+    </view>
+  </view>
+</view>

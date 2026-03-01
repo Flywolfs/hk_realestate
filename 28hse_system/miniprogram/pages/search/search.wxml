@@ -1,0 +1,57 @@
+<!--pages/search/search.wxml - 搜索页-->
+<view class="search-container">
+  <!-- 搜索框 -->
+  <view class="search-bar">
+    <input 
+      class="search-input"
+      placeholder="搜索小区名称"
+      value="{{keyword}}"
+      bindinput="onKeywordChange"
+      confirm-type="search"
+      bindconfirm="onSearch"
+      focus="{{true}}"
+    />
+    <button class="search-btn" bindtap="onSearch" wx:if="{{keyword}}">搜索</button>
+    <button class="clear-btn" bindtap="clearKeyword" wx:if="{{keyword}}">清除</button>
+  </view>
+
+  <!-- 搜索结果 -->
+  <view class="result-list" wx:if="{{results.length > 0}}">
+    <view 
+      class="result-item"
+      wx:for="{{results}}"
+      wx:key="id"
+      bindtap="selectEstate"
+      data-estate-id="{{item.id}}"
+    >
+      <view class="estate-header">
+        <text class="estate-name">{{item.name}}</text>
+        <text class="ratio-badge" wx:if="{{item.rent_ratio}}" style="background-color: {{item.ratioColor}}">
+          {{item.rent_ratio}}%
+        </text>
+      </view>
+      <view class="estate-info">
+        <text class="address">{{item.address}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 搜索提示 -->
+  <view class="search-tips" wx:if="{{!searched && !keyword}}">
+    <text class="tips-title">搜索提示</text>
+    <text class="tips-text">• 输入小区名称进行搜索</text>
+    <text class="tips-text">• 支持模糊匹配</text>
+    <text class="tips-text">• 例如: 黃埔、美孚、太古城</text>
+  </view>
+
+  <!-- 无结果提示 -->
+  <view class="no-result" wx:if="{{searched && results.length === 0}}">
+    <text class="no-result-text">未找到相关小区</text>
+    <text class="no-result-hint">请尝试其他关键词</text>
+  </view>
+
+  <!-- 加载中 -->
+  <view class="loading" wx:if="{{searching}}">
+    <text>搜索中...</text>
+  </view>
+</view>

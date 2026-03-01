@@ -1,0 +1,148 @@
+/* pages/search/search.wxss - 搜索页样式 */
+
+.search-container {
+  padding: 20rpx;
+  min-height: 100vh;
+  background-color: #f5f5f5;
+}
+
+/* 搜索框 */
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 20rpx;
+  background-color: #fff;
+  border-radius: 12rpx;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.08);
+}
+
+.search-input {
+  flex: 1;
+  height: 60rpx;
+  padding: 0 20rpx;
+  background-color: #f5f5f5;
+  border-radius: 8rpx;
+  font-size: 28rpx;
+}
+
+.search-btn,
+.clear-btn {
+  padding: 10rpx 30rpx;
+  font-size: 24rpx;
+  border-radius: 8rpx;
+  border: none;
+}
+
+.search-btn {
+  background-color: #4CAF50;
+  color: #fff;
+}
+
+.clear-btn {
+  background-color: #f0f0f0;
+  color: #666;
+}
+
+/* 搜索结果列表 */
+.result-list {
+  margin-top: 20rpx;
+}
+
+.result-item {
+  background-color: #fff;
+  padding: 30rpx;
+  margin-bottom: 20rpx;
+  border-radius: 12rpx;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.08);
+  transition: all 0.3s;
+}
+
+.result-item:active {
+  transform: scale(0.98);
+  opacity: 0.8;
+}
+
+.estate-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10rpx;
+}
+
+.estate-name {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #333;
+}
+
+.ratio-badge {
+  padding: 8rpx 16rpx;
+  border-radius: 20rpx;
+  font-size: 24rpx;
+  color: #fff;
+  font-weight: 500;
+}
+
+.estate-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.address {
+  font-size: 26rpx;
+  color: #666;
+}
+
+/* 搜索提示 */
+.search-tips {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+  padding: 60rpx 40rpx;
+  text-align: left;
+}
+
+.tips-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 10rpx;
+}
+
+.tips-text {
+  font-size: 28rpx;
+  color: #666;
+  line-height: 1.8;
+}
+
+/* 无结果 */
+.no-result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 100rpx 40rpx;
+  gap: 20rpx;
+}
+
+.no-result-text {
+  font-size: 32rpx;
+  color: #999;
+}
+
+.no-result-hint {
+  font-size: 26rpx;
+  color: #ccc;
+}
+
+/* 加载中 */
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 80rpx 0;
+  color: #999;
+  font-size: 28rpx;
+}

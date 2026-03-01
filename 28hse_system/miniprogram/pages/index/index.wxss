@@ -1,0 +1,105 @@
+/* pages/index/index.wxss - 首页样式 */
+
+.container {
+  width: 100%;
+  height: 100vh;
+  position: relative;
+}
+
+/* 地图 */
+.map {
+  width: 100%;
+  height: 100%;
+}
+
+/* 地图控件 */
+.map-controls {
+  position: absolute;
+  top: 20rpx;
+  right: 20rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+
+.control-btn {
+  width: 120rpx;
+  height: 60rpx;
+  background-color: rgba(255, 255, 255, 0.95);
+  border-radius: 30rpx;
+  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s;
+}
+
+.control-btn:active {
+  background-color: rgba(255, 255, 255, 0.8);
+  transform: scale(0.95);
+}
+
+.btn-text {
+  color: #333;
+  font-size: 24rpx;
+  font-weight: 500;
+}
+
+/* 底部统计面板 */
+.stats-panel-container {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.6), transparent);
+  padding: 40rpx 20rpx 20rpx;
+}
+
+/* 图例弹窗 */
+.legend-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.legend-content {
+  width: 85%;
+  max-width: 600rpx;
+  background-color: #fff;
+  border-radius: 16rpx;
+  padding: 30rpx;
+  box-shadow: 0 8rpx 24rpx rgba(0, 0, 0, 0.2);
+}
+
+/* 加载遮罩 */
+.loading-mask {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(255, 255, 255, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20rpx;
+}
+
+.loading-content text {
+  color: #666;
+  font-size: 28rpx;
+}

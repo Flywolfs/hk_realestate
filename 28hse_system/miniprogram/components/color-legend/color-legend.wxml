@@ -1,0 +1,41 @@
+<!-- components/color-legend/color-legend.wxml -->
+<view class="legend-container">
+  <view class="legend-header">
+    <text class="legend-title">租售比图例</text>
+    <view class="close-btn" bindtap="onClose">✕</view>
+  </view>
+  
+  <view class="gradient-bar">
+    <view 
+      class="gradient-item"
+      wx:for="{{colors}}"
+      wx:key="index"
+      style="background-color: {{item}}"
+    ></view>
+  </view>
+  
+  <view class="legend-labels">
+    <text class="label-item">低</text>
+    <text class="label-item">4%</text>
+    <text class="label-item">7%+</text>
+  </view>
+  
+  <view class="legend-desc">
+    <view class="desc-item">
+      <view class="color-dot" style="background-color: #73c373"></view>
+      <text>绿色: 租售比低</text>
+    </view>
+    <view class="desc-item">
+      <view class="color-dot" style="background-color: #ffeb3b"></view>
+      <text>黄色: 租售比中等(4%)</text>
+    </view>
+    <view class="desc-item">
+      <view class="color-dot" style="background-color: #f44336"></view>
+      <text>红色: 租售比高(7%+)</text>
+    </view>
+    <view class="desc-item">
+      <view class="color-dot" style="background-color: #999999"></view>
+      <text>灰色: 无数据</text>
+    </view>
+  </view>
+</view>

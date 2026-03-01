@@ -1,0 +1,73 @@
+/* components/color-legend/color-legend.wxss */
+
+.legend-container {
+  position: relative;
+}
+
+.legend-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 30rpx;
+}
+
+.legend-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #333;
+}
+
+.close-btn {
+  width: 50rpx;
+  height: 50rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36rpx;
+  color: #999;
+  cursor: pointer;
+}
+
+.gradient-bar {
+  display: flex;
+  height: 40rpx;
+  border-radius: 20rpx;
+  overflow: hidden;
+  margin-bottom: 20rpx;
+}
+
+.gradient-item {
+  flex: 1;
+}
+
+.legend-labels {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 10rpx;
+  margin-bottom: 30rpx;
+}
+
+.label-item {
+  font-size: 24rpx;
+  color: #666;
+}
+
+.legend-desc {
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+
+.desc-item {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  font-size: 26rpx;
+  color: #666;
+}
+
+.color-dot {
+  width: 24rpx;
+  height: 24rpx;
+  border-radius: 50%;
+}

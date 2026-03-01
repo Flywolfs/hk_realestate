@@ -1,0 +1,36 @@
+/* components/stats-panel/stats-panel.wxss */
+
+.stats-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  background-color: rgba(255, 255, 255, 0.95);
+  border-radius: 16rpx;
+  padding: 30rpx 20rpx;
+  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.1);
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12rpx;
+  flex: 1;
+}
+
+.label {
+  font-size: 24rpx;
+  color: #999;
+}
+
+.value {
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #4CAF50;
+}
+
+.divider {
+  width: 1rpx;
+  height: 60rpx;
+  background-color: #e0e0e0;
+}

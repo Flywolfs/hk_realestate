@@ -17,7 +17,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.data_loader import DataLoader
 
 app = Flask(__name__, static_folder='../frontend/dist', static_url_path='')
-CORS(app)  # 允许跨域访问
+
+# CORS配置 - 支持Web和微信小程序
+CORS(app, 
+     origins=['*'],  # 开发环境允许所有来源,生产环境应改为具体域名
+     supports_credentials=True,
+     allow_headers=['Content-Type', 'Authorization'],
+     methods=['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'])
 
 # 配置日志
 logging.basicConfig(

@@ -1,0 +1,48 @@
+<!-- pages/estate-detail/estate-detail.wxml - 小区详情页 -->
+<view class="detail-container">
+  <view wx:if="{{!loading && estate}}">
+    <!-- 标题区域 -->
+    <view class="header-section">
+      <text class="estate-name">{{estate.name}}</text>
+      <view class="ratio-badge" style="background-color: {{ratioColor}}">
+        <text>租售比: {{estate.rent_ratio}}%</text>
+      </view>
+    </view>
+
+    <!-- 基本信息 -->
+    <view class="info-card">
+      <view class="card-title">基本信息</view>
+      <view class="info-row" wx:if="{{estate.address}}">
+        <text class="info-label">地址</text>
+        <text class="info-value">{{estate.address}}</text>
+      </view>
+      <view class="info-row" wx:if="{{estate.establish_year}}">
+        <text class="info-label">建立年份</text>
+        <text class="info-value">{{estate.establish_year}}</text>
+      </view>
+      <view class="info-row" wx:if="{{estate.developer}}">
+        <text class="info-label">开发商</text>
+        <text class="info-value">{{estate.developer}}</text>
+      </view>
+      <view class="info-row" wx:if="{{estate.building_count}}">
+        <text class="info-label">座数</text>
+        <text class="info-value">{{estate.building_count}}</text>
+      </view>
+      <view class="info-row" wx:if="{{estate.primary_school}}">
+        <text class="info-label">小学校网</text>
+        <text class="info-value">{{estate.primary_school}}</text>
+      </view>
+    </view>
+
+    <!-- 操作按钮 -->
+    <view class="action-buttons">
+      <button class="action-btn primary" bindtap="showOnMap">在地图中查看</button>
+      <button class="action-btn" open-type="share">分享</button>
+    </view>
+  </view>
+
+  <!-- 加载中 -->
+  <view class="loading" wx:if="{{loading}}">
+    <text>加载中...</text>
+  </view>
+</view>

@@ -1,0 +1,12 @@
+<!-- components/stats-panel/stats-panel.wxml -->
+<view class="stats-panel">
+  <view class="stat-item">
+    <text class="label">小区总数</text>
+    <text class="value">{{estateCount}}</text>
+  </view>
+  <view class="divider"></view>
+  <view class="stat-item">
+    <text class="label">平均租售比</text>
+    <text class="value">{{avgRatio}}%</text>
+  </view>
+</view>

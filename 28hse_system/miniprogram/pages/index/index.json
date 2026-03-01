@@ -1,0 +1,7 @@
+{
+  "navigationBarTitleText": "香港小区租售比地图",
+  "usingComponents": {
+    "stats-panel": "/components/stats-panel/stats-panel",
+    "color-legend": "/components/color-legend/color-legend"
+  }
+}
