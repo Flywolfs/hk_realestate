@@ -81,6 +81,22 @@
         </div>
       </div>
       
+      <div class="filter-section">
+        <h4>尺价过滤</h4>
+        <div class="price-filter-input">
+          <label for="target-price">目标尺价（元/平方呈）：</label>
+          <input 
+            type="number" 
+            id="target-price" 
+            v-model.number="filters.targetPrice" 
+            @input="applyFilters"
+            placeholder="请输入尺价"
+            min="0"
+          />
+          <small v-if="filters.targetPrice">显示不超过 {{ (filters.targetPrice * 1.05).toFixed(0) }} 元的屋苑</small>
+        </div>
+      </div>
+      
       <button class="reset-btn" @click="resetFilters">重置筛选</button>
     </div>
     
@@ -128,7 +144,8 @@ export default {
         year2000to2010: false,
         year1990to2000: false,
         before1990: false,
-        selectedSchools: []  // 选中的校网
+        selectedSchools: [],  // 选中的校网
+        targetPrice: null  // 目标尺价
       }
     }
   },
@@ -260,6 +277,17 @@ export default {
             ${detail.building_count ? `
               <div class="popup-section">
                 <strong>座数:</strong> ${detail.building_count}
+              </div>
+            ` : ''}
+            ${detail.min_area && detail.max_area ? `
+              <div class="popup-section">
+                <strong>面积范围:</strong> ${Math.round(detail.min_area)}-${Math.round(detail.max_area)} 平方尺
+              </div>
+            ` : ''}
+            ${detail.avg_price_per_sqft ? `
+              <div class="popup-section">
+                <strong>最近平均尺价:</strong> ${Math.round(detail.avg_price_per_sqft).toLocaleString()} 元/平方尺
+                <small style="color: #666; display: block; margin-top: 4px;">（最近5条成交记录平均）</small>
               </div>
             ` : ''}
             ${detail.rent_ratio ? `
@@ -504,6 +532,15 @@ export default {
         if (!this.filters.selectedSchools.includes(school)) return false
       }
       
+      // === 尺价过滤 ===
+      if (this.filters.targetPrice && this.filters.targetPrice > 0) {
+        const currentPrice = estate.current_price_per_sqft
+        if (!currentPrice) return false  // 没有尺价数据的不显示
+        
+        const maxAllowedPrice = this.filters.targetPrice * 1.05  // 上浮5%
+        if (currentPrice > maxAllowedPrice) return false
+      }
+      
       return true
     },
     
@@ -535,7 +572,8 @@ export default {
         year2000to2010: false,
         year1990to2000: false,
         before1990: false,
-        selectedSchools: []
+        selectedSchools: [],
+        targetPrice: null
       }
       this.applyFilters()
     }
@@ -653,6 +691,38 @@ export default {
 
 .reset-btn:active {
   transform: translateY(1px);
+}
+
+/* 尺价过滤输入框 */
+.price-filter-input {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.price-filter-input label {
+  font-size: 12px;
+  color: #666;
+  font-weight: 500;
+}
+
+.price-filter-input input[type="number"] {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.price-filter-input input[type="number"]:focus {
+  outline: none;
+  border-color: #4CAF50;
+}
+
+.price-filter-input small {
+  font-size: 11px;
+  color: #999;
+  font-style: italic;
 }
 
 .loading-overlay {

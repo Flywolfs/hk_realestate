@@ -9,15 +9,24 @@ from typing import Dict, List, Optional
 
 
 class DataLoader:
-    def __init__(self, base_path: str):
+    def __init__(self, base_path: str, transaction_buy_path: str = None):
         """
         初始化数据加载器
         :param base_path: 项目根目录路径
+        :param transaction_buy_path: 交易数据路径（buy目录）
         """
         self.base_path = base_path
-        self.estate_static_path = '/home/zhangchi/Documents/28hse/centanet_system/crawler/estate_info_20260221_convert.json'
-        self.rent_ratio_path = '/home/zhangchi/Documents/28hse/centanet_system/crawler/average_rent_sale_ratio.json'
+        # self.estate_static_path = '/home/zhangchi/Documents/28hse/centanet_system/crawler/estate_info_20260221_convert.json'
+        # self.rent_ratio_path = '/home/zhangchi/Documents/28hse/centanet_system/crawler/average_rent_sale_ratio.json'
+        self.estate_static_path = '/home/zhangchi/Documents/28hse/28hse_system/estate_static_info_convert.json'
+        self.rent_ratio_path = '/home/zhangchi/Documents/28hse/28hse_system/average_rent_sale_ratio.json'
         self.housing_types_path = os.path.join(base_path, 'housing_types.json')
+        
+        # 设置交易数据路径（默认值）
+        if transaction_buy_path:
+            self.transaction_buy_path = transaction_buy_path
+        else:
+            self.transaction_buy_path = os.path.join(base_path, '28hse', 'transaction_records_20260227_trans', 'buy')
     
     @lru_cache(maxsize=1)
     def load_estate_static_info(self) -> Dict:
@@ -67,6 +76,90 @@ class DataLoader:
         except json.JSONDecodeError as e:
             print(f"错误: JSON解析失败 {e}")
             return {'gongwu': {'names': []}, 'juwu': {'names': []}}
+    
+    def load_estate_transactions(self, estate_id: str) -> List[Dict]:
+        """
+        加载某个小区的交易记录
+        :param estate_id: 小区ID
+        :return: 交易记录列表
+        """
+        # 将estate_id转换为文件名（去除前缀）
+        # 例如：'2-AABBCCDD' -> 'AABBCCDD.json'
+        if '-' in estate_id:
+            file_id = estate_id.split('-', 1)[1]
+        else:
+            file_id = estate_id
+        
+        transaction_file = os.path.join(self.transaction_buy_path, f"{file_id}.json")
+        
+        try:
+            with open(transaction_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return data.get('transactions', [])
+        except FileNotFoundError:
+            return []
+        except json.JSONDecodeError as e:
+            print(f"警告: 交易数据解析失败 {transaction_file}: {e}")
+            return []
+    
+    def get_estate_area_range(self, estate_id: str) -> Dict:
+        """
+        获取小区的面积范围
+        :param estate_id: 小区ID
+        :return: {'min_area': float, 'max_area': float} 或 {}
+        """
+        transactions = self.load_estate_transactions(estate_id)
+        
+        if not transactions:
+            return {}
+        
+        # 提取所有有效面积
+        areas = []
+        for trans in transactions:
+            # 尝试saleable_area或area字段
+            area = trans.get('saleable_area') or trans.get('area')
+            if area and isinstance(area, (int, float)) and area > 0:
+                areas.append(area)
+        
+        if not areas:
+            return {}
+        
+        return {
+            'min_area': min(areas),
+            'max_area': max(areas)
+        }
+    
+    def get_estate_current_price_per_sqft(self, estate_id: str) -> Optional[float]:
+        """
+        获取小区的当前尺价（最近5条记录的平均值）
+        :param estate_id: 小区ID
+        :return: 平均尺价或None
+        """
+        transactions = self.load_estate_transactions(estate_id)
+        
+        if not transactions:
+            return None
+        
+        # 按交易日期排序（使用date字段）
+        # 如果没有日期字段，则取最后5条
+        sorted_trans = transactions
+        if transactions and 'date' in transactions[0]:
+            sorted_trans = sorted(transactions, key=lambda x: x.get('date', ''), reverse=True)
+        
+        # 取最新5条
+        recent_trans = sorted_trans[:5]
+        
+        # 提取price_per_sqft
+        prices = []
+        for trans in recent_trans:
+            price = trans.get('price_per_sqft')
+            if price and isinstance(price, (int, float)) and price > 0:
+                prices.append(price)
+        
+        if not prices:
+            return None
+        
+        return sum(prices) / len(prices)
     
     def get_integrated_estates(self) -> List[Dict]:
         """
@@ -125,6 +218,9 @@ class DataLoader:
             establish_year = estate_data.get('establish_year') or basic_info.get('establish_year')
             primary_school = estate_data.get('primary_school') or basic_info.get('primary_school')
             
+            # 获取当前尺价
+            current_price_per_sqft = self.get_estate_current_price_per_sqft(estate_id)
+            
             integrated_list.append({
                 'id': estate_id,
                 'name': estate_data.get('name', ''),
@@ -135,7 +231,8 @@ class DataLoader:
                 'room_type_ratio': room_type_ratio,
                 'housing_type': housing_type,
                 'establish_year': establish_year,
-                'primary_school': primary_school
+                'primary_school': primary_school,
+                'current_price_per_sqft': current_price_per_sqft  # 当前尺价
             })
         
         return integrated_list
@@ -176,6 +273,12 @@ class DataLoader:
             overall_ratio_timeseries = {}
             room_type_ratio = {}
         
+        # 获取面积范围
+        area_range = self.get_estate_area_range(estate_id)
+        
+        # 获取平均尺价
+        avg_price_per_sqft = self.get_estate_current_price_per_sqft(estate_id)
+        
         detail = {
             'id': estate_id,
             'name': estate_data.get('name', ''),
@@ -192,7 +295,10 @@ class DataLoader:
             'facilities': basic_info.get('facilities', ''),
             'parking_spaces': basic_info.get('parking_spaces', ''),
             'primary_school': basic_info.get('primary_school', ''),
-            'middle_school': basic_info.get('middle_school', '')
+            'middle_school': basic_info.get('middle_school', ''),
+            'min_area': area_range.get('min_area'),  # 最小面积
+            'max_area': area_range.get('max_area'),   # 最大面积
+            'avg_price_per_sqft': avg_price_per_sqft  # 平均尺价
         }
         
         return detail
