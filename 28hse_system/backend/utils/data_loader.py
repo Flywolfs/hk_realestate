@@ -16,17 +16,17 @@ class DataLoader:
         :param transaction_buy_path: 交易数据路径（buy目录）
         """
         self.base_path = base_path
-        # self.estate_static_path = '/home/zhangchi/Documents/28hse/centanet_system/crawler/estate_info_20260221_convert.json'
-        # self.rent_ratio_path = '/home/zhangchi/Documents/28hse/centanet_system/crawler/average_rent_sale_ratio.json'
-        self.estate_static_path = '/home/zhangchi/Documents/28hse/28hse_system/estate_static_info_convert.json'
-        self.rent_ratio_path = '/home/zhangchi/Documents/28hse/28hse_system/average_rent_sale_ratio.json'
+        self.estate_static_path = '/home/zhangchi/Documents/28hse/centanet_system/crawler/estate_info_20260221_convert.json'
+        self.rent_ratio_path = '/home/zhangchi/Documents/28hse/centanet_system/crawler/average_rent_sale_ratio.json'
+        # self.estate_static_path = '/home/zhangchi/Documents/28hse/28hse_system/estate_static_info_convert.json'
+        # self.rent_ratio_path = '/home/zhangchi/Documents/28hse/28hse_system/average_rent_sale_ratio.json'
         self.housing_types_path = os.path.join(base_path, 'housing_types.json')
         
         # 设置交易数据路径（默认值）
         if transaction_buy_path:
             self.transaction_buy_path = transaction_buy_path
         else:
-            self.transaction_buy_path = os.path.join(base_path, '28hse', 'transaction_records_20260227_trans', 'buy')
+            self.transaction_buy_path = "/home/zhangchi/Documents/28hse/centanet_system/crawler/transaction_record_20260223_trans/buy"
     
     @lru_cache(maxsize=1)
     def load_estate_static_info(self) -> Dict:
@@ -85,10 +85,10 @@ class DataLoader:
         """
         # 将estate_id转换为文件名（去除前缀）
         # 例如：'2-AABBCCDD' -> 'AABBCCDD.json'
-        if '-' in estate_id:
-            file_id = estate_id.split('-', 1)[1]
-        else:
-            file_id = estate_id
+        # if '-' in estate_id:
+        #     file_id = estate_id.split('-', 1)[1]
+        # else:
+        file_id = estate_id
         
         transaction_file = os.path.join(self.transaction_buy_path, f"{file_id}.json")
         
@@ -143,8 +143,8 @@ class DataLoader:
         # 按交易日期排序（使用date字段）
         # 如果没有日期字段，则取最后5条
         sorted_trans = transactions
-        if transactions and 'date' in transactions[0]:
-            sorted_trans = sorted(transactions, key=lambda x: x.get('date', ''), reverse=True)
+        # if transactions and 'date' in transactions[0]:
+        #     sorted_trans = sorted(transactions, key=lambda x: x.get('date', ''), reverse=True)
         
         # 取最新5条
         recent_trans = sorted_trans[:5]

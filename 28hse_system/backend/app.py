@@ -6,6 +6,10 @@ from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 import os
 import sys
+import logging
+from datetime import datetime
+from collections import defaultdict
+from functools import wraps
 
 # 添加父目录到路径,以便导入data_loader
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -15,11 +19,116 @@ from utils.data_loader import DataLoader
 app = Flask(__name__, static_folder='../frontend/dist', static_url_path='')
 CORS(app)  # 允许跨域访问
 
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.FileHandler('access.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# 设置Flask自带的日志级别为WARNING，减少噪音
+logging.getLogger('werkzeug').setLevel(logging.WARNING)
+
+# 简单的IP请求频率限制(生产环境建议使用Redis)
+ip_request_tracker = defaultdict(list)
+MAX_REQUESTS_PER_MINUTE = 30
+BLOCK_DURATION_MINUTES = 10
+blocked_ips = {}
+
 # 初始化数据加载器
 BASE_PATH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 data_loader = DataLoader(BASE_PATH)
 
+
+def rate_limit(f):
+    """IP请求频率限制装饰器"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+        if not client_ip:
+            client_ip = request.remote_addr
+        
+        # 检查是否在黑名单中
+        if client_ip in blocked_ips:
+            block_time = blocked_ips[client_ip]
+            if (datetime.now() - block_time).total_seconds() < BLOCK_DURATION_MINUTES * 60:
+                logger.warning(f"Blocked IP attempt: {client_ip}")
+                return jsonify({
+                    'success': False,
+                    'error': 'Too many requests. Please try again later.'
+                }), 429
+            else:
+                # 解除封禁
+                del blocked_ips[client_ip]
+                ip_request_tracker[client_ip] = []
+        
+        # 清理过期的请求记录
+        now = datetime.now()
+        ip_request_tracker[client_ip] = [
+            req_time for req_time in ip_request_tracker[client_ip]
+            if (now - req_time).total_seconds() < 60
+        ]
+        
+        # 检查请求频率
+        if len(ip_request_tracker[client_ip]) >= MAX_REQUESTS_PER_MINUTE:
+            blocked_ips[client_ip] = now
+            logger.warning(f"IP blocked due to rate limit: {client_ip}")
+            return jsonify({
+                'success': False,
+                'error': 'Rate limit exceeded. IP temporarily blocked.'
+            }), 429
+        
+        # 记录本次请求
+        ip_request_tracker[client_ip].append(now)
+        
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+@app.before_request
+def log_request_info():
+    """记录所有请求信息用于安全审计"""
+    client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    user_agent = request.headers.get('User-Agent', 'Unknown')
+    
+    # 检测可疑请求
+    suspicious_patterns = [
+        b'\x16\x03\x01',  # TLS handshake
+        b'SSH-',           # SSH protocol
+        'script',          # XSS attempts
+        '../',             # Path traversal
+        'SELECT',          # SQL injection
+        'UNION',
+    ]
+    
+    is_suspicious = False
+    for pattern in suspicious_patterns:
+        if isinstance(pattern, bytes):
+            if pattern in request.data:
+                is_suspicious = True
+                break
+        elif pattern.lower() in str(request.url).lower() or pattern.lower() in str(request.data).lower():
+            is_suspicious = True
+            break
+    
+    if is_suspicious:
+        logger.warning(
+            f"SUSPICIOUS REQUEST - IP: {client_ip}, "
+            f"Method: {request.method}, Path: {request.path}, "
+            f"User-Agent: {user_agent}"
+        )
+    else:
+        logger.info(
+            f"IP: {client_ip}, Method: {request.method}, "
+            f"Path: {request.path}, User-Agent: {user_agent}"
+        )
+
 @app.route('/api/estates', methods=['GET'])
+@rate_limit
 def get_all_estates():
     """
     获取所有有坐标的小区列表
@@ -33,6 +142,7 @@ def get_all_estates():
             'data': estates
         })
     except Exception as e:
+        logger.error(f"Error in get_all_estates: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
             'error': str(e)
@@ -40,6 +150,7 @@ def get_all_estates():
 
 
 @app.route('/api/estates/<estate_id>', methods=['GET'])
+@rate_limit
 def get_estate_detail(estate_id):
     """
     获取特定小区的详细信息
@@ -57,6 +168,7 @@ def get_estate_detail(estate_id):
                 'error': f'未找到ID为 {estate_id} 的小区'
             }), 404
     except Exception as e:
+        logger.error(f"Error in get_estate_detail for {estate_id}: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
             'error': str(e)
@@ -64,6 +176,7 @@ def get_estate_detail(estate_id):
 
 
 @app.route('/api/rent-ratios', methods=['GET'])
+@rate_limit
 def get_rent_ratios():
     """
     获取租售比统计信息
@@ -76,6 +189,7 @@ def get_rent_ratios():
             'data': stats
         })
     except Exception as e:
+        logger.error(f"Error in get_rent_ratios: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
             'error': str(e)
@@ -83,6 +197,7 @@ def get_rent_ratios():
 
 
 @app.route('/api/search', methods=['GET'])
+@rate_limit
 def search_estates():
     """
     按小区名称模糊搜索
@@ -103,6 +218,7 @@ def search_estates():
             'data': results
         })
     except Exception as e:
+        logger.error(f"Error in search_estates with keyword '{keyword}': {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
             'error': str(e)
@@ -110,6 +226,7 @@ def search_estates():
 
 
 @app.route('/api/primary-schools', methods=['GET'])
+@rate_limit
 def get_primary_schools():
     """
     获取所有小学校网列表
@@ -139,6 +256,7 @@ def get_primary_schools():
             'data': result
         })
     except Exception as e:
+        logger.error(f"Error in get_primary_schools: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
             'error': str(e)
@@ -168,6 +286,7 @@ def serve_frontend(path):
 @app.errorhandler(404)
 def not_found(e):
     """处理404错误"""
+    logger.warning(f"404 Not Found: {request.url}")
     return jsonify({
         'success': False,
         'error': '资源未找到'
@@ -177,6 +296,7 @@ def not_found(e):
 @app.errorhandler(500)
 def internal_error(e):
     """处理500错误"""
+    logger.error(f"500 Internal Server Error: {str(e)}", exc_info=True)
     return jsonify({
         'success': False,
         'error': '服务器内部错误'
@@ -194,7 +314,13 @@ if __name__ == '__main__':
     print(f"  - GET /api/estates/<id>")
     print(f"  - GET /api/rent-ratios")
     print(f"  - GET /api/search?keyword=<关键词>")
+    print(f"  - GET /api/primary-schools")
+    print("\n安全特性:")
+    print(f"  - IP请求频率限制: {MAX_REQUESTS_PER_MINUTE}次/分钟")
+    print(f"  - 可疑请求检测与日志记录")
+    print(f"  - 访问日志: access.log")
     print("=" * 60)
     
     # 启动Flask应用
+    # 生产环境建议关闭debug模式
     app.run(host='0.0.0.0', port=5000, debug=True)

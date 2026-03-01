@@ -1,5 +1,6 @@
 import os
 import json
+from datetime import datetime
 
 def transfer_data(input_file, output_file, type="buy"):
     with open(input_file, 'r') as f:
@@ -11,10 +12,27 @@ def transfer_data(input_file, output_file, type="buy"):
         "transactions": []
     }
     for item in data["data"]:
+        date_reg = ""
+        date_ins = ""
+        if "regDate" in item:
+            date_reg = datetime.strptime(item["regDate"].split("T")[0], "%Y-%m-%d")
+        if "insDate" in item:
+            date_ins = datetime.strptime(item["insDate"].split("T")[0], "%Y-%m-%d")
+        #如果同时存在，那么最终日期是date_reg和date_ins中更大的那个
+        if date_reg != "" and date_ins != "":
+            date = max(date_reg, date_ins)
+        elif date_reg != "":
+            date = date_reg
+        elif date_ins != "":
+            date = date_ins
+        else:
+            date = None
+        #date转为str格式，只保留年月日
+        date = date.strftime("%Y-%m-%d") if date is not None else None
         if type == "buy" :
             transaction = {
                 "unit_location": item["estateName"] + " " + item["buildingName"] + " " + item["yAxis"] + " " + item["xAxis"],
-                "date": item["regDate"].split("T")[0] if "regDate" in item else None,
+                "date": date,
                 "total_price": item["transactionPrice"] if "transactionPrice" in item else None,
                 "room_count": item["bedroomCount"] if "bedroomCount" in item else None,
                 "area": item["nArea"] if "nArea" in item else None,
@@ -24,7 +42,7 @@ def transfer_data(input_file, output_file, type="buy"):
         if type == "rent":
             transaction = {
                 "unit_location": item["estateName"] + " " + item["buildingName"] + " " + item["yAxis"] + " " + item["xAxis"],
-                "date": item["insDate"].split("T")[0] if "insDate" in item else None,
+                "date": date,
                 "total_price": item["transactionPrice"] if "transactionPrice" in item else None,
                 "area": item["nArea"] if "nArea" in item else None,
                 "rent_per_sqft":  round(item["transactionPrice"]/item["nArea"],1) if "nArea" in item and "transactionPrice" in item else None
