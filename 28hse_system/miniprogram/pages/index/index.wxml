@@ -11,6 +11,12 @@
     show-location="{{true}}"
     bindmarkertap="onMarkerTap"
     bindregionchange="onRegionChange"
+    enable-3D="{{false}}"
+    enable-overlooking="{{false}}"
+    enable-zoom="{{true}}"
+    enable-scroll="{{true}}"
+    enable-rotate="{{false}}"
+    show-compass="{{false}}"
   >
     <!-- 地图控件 -->
     <cover-view class="map-controls">
@@ -25,6 +31,26 @@
       </cover-view>
     </cover-view>
   </map>
+
+  <!-- 小区信息卡片 -->
+  <view class="estate-card" wx:if="{{showEstateCard}}" bindtap="closeEstateCard">
+    <view class="estate-card-content" catchtap="preventClose">
+      <view class="estate-card-header">
+        <text class="estate-name">{{selectedEstate.estateName}}</text>
+        <view class="close-btn" bindtap="closeEstateCard">×</view>
+      </view>
+      <view class="estate-info">
+        <text class="estate-address">{{selectedEstate.address || '地址信息缺失'}}</text>
+        <view class="estate-ratio" wx:if="{{selectedEstate.rentRatio}}">
+          <text class="ratio-label">租售比：</text>
+          <text class="ratio-value">{{selectedEstate.rentRatio}}%</text>
+        </view>
+      </view>
+      <view class="estate-actions">
+        <button class="detail-btn" bindtap="viewEstateDetail">查看详情</button>
+      </view>
+    </view>
+  </view>
 
   <!-- 底部统计面板 -->
   <view class="stats-panel-container" wx:if="{{showStats}}">

@@ -5,7 +5,7 @@
 
 // 获取API基础URL
 const app = getApp()
-const BASE_URL = 'http://localhost:5000/api'  // 开发环境,上线前需替换为HTTPS域名
+const BASE_URL = 'http://192.168.31.33:5000/api'  // 开发环境,上线前需替换为HTTPS域名
 
 /**
  * 封装wx.request

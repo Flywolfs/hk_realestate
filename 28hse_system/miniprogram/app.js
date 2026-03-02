@@ -3,7 +3,7 @@ App({
   globalData: {
     // 全局数据,用于页面间传递信息
     locateEstate: null,  // 从详情页返回时定位到的小区信息
-    apiBaseUrl: 'http://localhost:5000/api',  // API基础URL,开发时使用,上线前需替换为HTTPS域名
+    apiBaseUrl: 'http://192.168.31.33:5000/api',  // API基础URL,开发时使用,上线前需替换为HTTPS域名
     userInfo: null
   },
 
