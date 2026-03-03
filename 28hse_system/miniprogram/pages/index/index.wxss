@@ -45,6 +45,62 @@
   font-weight: 500;
 }
 
+/* 房屋类型筛选按钮 */
+.housing-filter-container {
+  position: absolute;
+  top: 20rpx;
+  left: 20rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.housing-filter-btn {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  padding: 16rpx 24rpx;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-radius: 32rpx;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.1);
+  transition: all 0.3s;
+  border: 2rpx solid transparent;
+}
+
+.housing-filter-btn.active {
+  background-color: #fff;
+  border-color: #4CAF50;
+  box-shadow: 0 4rpx 16rpx rgba(76, 175, 80, 0.25);
+}
+
+.housing-filter-btn:active {
+  transform: scale(0.95);
+}
+
+.filter-dot {
+  width: 16rpx;
+  height: 16rpx;
+  border-radius: 50%;
+}
+
+.public-dot {
+  background-color: #FF9800;
+}
+
+.subsidized-dot {
+  background-color: #2196F3;
+}
+
+.private-dot {
+  background-color: #4CAF50;
+}
+
+.filter-text {
+  color: #333;
+  font-size: 26rpx;
+  font-weight: 500;
+}
+
 /* 小区信息卡片 */
 .estate-card {
   position: fixed;

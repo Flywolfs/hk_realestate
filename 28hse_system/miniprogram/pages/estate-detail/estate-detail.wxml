@@ -34,6 +34,19 @@
       </view>
     </view>
 
+    <!-- 租售比趋势图 -->
+    <view class="trend-chart-card" wx:if="{{hasTrendData}}">
+      <canvas type="2d" id="trendCanvas" class="trend-canvas" bindtouchstart="onCanvasTouchStart" bindtouchend="onCanvasTouchEnd"></canvas>
+      <!-- 选中点提示框 -->
+      <view class="trend-tooltip {{selectedPoint.position === 'bottom' ? 'trend-tooltip-bottom' : ''}}" wx:if="{{selectedPoint}}" style="left: {{selectedPoint.x}}rpx; top: {{selectedPoint.y}}rpx;">
+        <view class="trend-tooltip-arrow"></view>
+        <view class="trend-tooltip-content">
+          <view class="trend-tooltip-date">{{selectedPoint.date}}</view>
+          <view class="trend-tooltip-value">{{selectedPoint.value}}%</view>
+        </view>
+      </view>
+    </view>
+
     <!-- 操作按钮 -->
     <view class="action-buttons">
       <button class="action-btn primary" bindtap="showOnMap">在地图中查看</button>

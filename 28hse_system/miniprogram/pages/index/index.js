@@ -17,6 +17,7 @@ Page({
     // 标记数据
     markers: [],
     allEstates: [],      // 所有小区数据
+    filteredEstates: [], // 筛选后的小区数据
     
     // 统计数据
     estateCount: 0,
@@ -31,7 +32,14 @@ Page({
     
     // 点击的marker信息（用于显示浮窗）
     selectedEstate: null,
-    showEstateCard: false
+    showEstateCard: false,
+    
+    // 房屋类型筛选
+    housingTypeFilter: {
+      showPublic: true,    // 显示公屋
+      showSubsidized: true, // 显示居屋
+      showPrivate: true    // 显示私人屋苑
+    }
   },
 
   onLoad() {
@@ -96,7 +104,11 @@ Page({
       const cachedEstates = getCache('all_estates_processed')
       if (cachedEstates) {
         console.log(`命中缓存，共 ${cachedEstates.length} 条屋苑`)
-        this.setData({ allEstates: cachedEstates, loading: false })
+        this.setData({ 
+          allEstates: cachedEstates,
+          filteredEstates: cachedEstates,
+          loading: false 
+        })
         this.loadMarkersInView()
         wx.hideLoading()
         return
@@ -120,7 +132,11 @@ Page({
         // 缓存处理后的数据，避免重复遍历
         setCache('all_estates_processed', processedEstates)
 
-        this.setData({ allEstates: processedEstates, loading: false })
+        this.setData({ 
+          allEstates: processedEstates,
+          filteredEstates: processedEstates,
+          loading: false 
+        })
         this.loadMarkersInView()
       }
     } catch (error) {
@@ -134,16 +150,16 @@ Page({
 
   // 加载可视区域内的标记(性能优化)
   async loadMarkersInView() {
-    const { allEstates, centerLat, centerLng, scale, minRatio, maxRatio } = this.data
+    const { filteredEstates, centerLat, centerLng, scale, minRatio, maxRatio } = this.data
     
-    if (!allEstates || allEstates.length === 0) return
+    if (!filteredEstates || filteredEstates.length === 0) return
     
     // 根据scale计算可视范围
     const latRange = 1 / Math.pow(2, scale - 8)
     const lngRange = 1.5 / Math.pow(2, scale - 8)
     
     // 筛选可视区域内的小区
-    const visibleEstates = allEstates.filter(estate => {
+    const visibleEstates = filteredEstates.filter(estate => {
       if (!estate.coordinates) return false
       const lat = estate.coordinates.latitude
       const lng = estate.coordinates.longitude
@@ -339,5 +355,67 @@ Page({
       path: '/pages/index/index',
       imageUrl: ''  // 可以设置分享图片
     }
+  },
+
+  // 切换房屋类型筛选
+  toggleHousingType(type) {
+    const { housingTypeFilter, allEstates } = this.data
+    const newFilter = { ...housingTypeFilter }
+    
+    // 切换对应类型的显示状态
+    if (type === 'public') {
+      newFilter.showPublic = !newFilter.showPublic
+    } else if (type === 'subsidized') {
+      newFilter.showSubsidized = !newFilter.showSubsidized
+    } else if (type === 'private') {
+      newFilter.showPrivate = !newFilter.showPrivate
+    }
+    
+    // 根据筛选条件过滤数据
+    const filteredEstates = allEstates.filter(estate => {
+      const housingType = estate.housing_type
+      
+      // gongwu = 公屋, juwu = 居屋, null = 私人屋苑
+      if (housingType === 'gongwu') {
+        return newFilter.showPublic
+      } else if (housingType === 'juwu') {
+        return newFilter.showSubsidized
+      } else {
+        // null 或其他值视为私人屋苑
+        return newFilter.showPrivate
+      }
+    })
+    
+    this.setData({
+      housingTypeFilter: newFilter,
+      filteredEstates: filteredEstates
+    })
+    
+    // 重新加载地图标记
+    this.loadMarkersInView()
+    
+    // 显示提示
+    const typeName = type === 'public' ? '公屋' : (type === 'subsidized' ? '居屋' : '私人屋苑')
+    const action = newFilter[type === 'public' ? 'showPublic' : (type === 'subsidized' ? 'showSubsidized' : 'showPrivate')] ? '显示' : '隐藏'
+    wx.showToast({
+      title: `${action}${typeName}`,
+      icon: 'none',
+      duration: 1500
+    })
+  },
+
+  // 切换公屋显示
+  togglePublic() {
+    this.toggleHousingType('public')
+  },
+
+  // 切换居屋显示
+  toggleSubsidized() {
+    this.toggleHousingType('subsidized')
+  },
+
+  // 切换私人屋苑显示
+  togglePrivate() {
+    this.toggleHousingType('private')
   }
 })

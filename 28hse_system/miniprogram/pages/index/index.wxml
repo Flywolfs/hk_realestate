@@ -30,6 +30,22 @@
         <cover-view class="btn-text">重置</cover-view>
       </cover-view>
     </cover-view>
+    
+    <!-- 房屋类型筛选按钮 -->
+    <cover-view class="housing-filter-container">
+      <cover-view class="housing-filter-btn {{housingTypeFilter.showPublic ? 'active' : ''}}" bindtap="togglePublic">
+        <cover-view class="filter-dot public-dot"></cover-view>
+        <cover-view class="filter-text">公屋</cover-view>
+      </cover-view>
+      <cover-view class="housing-filter-btn {{housingTypeFilter.showSubsidized ? 'active' : ''}}" bindtap="toggleSubsidized">
+        <cover-view class="filter-dot subsidized-dot"></cover-view>
+        <cover-view class="filter-text">居屋</cover-view>
+      </cover-view>
+      <cover-view class="housing-filter-btn {{housingTypeFilter.showPrivate ? 'active' : ''}}" bindtap="togglePrivate">
+        <cover-view class="filter-dot private-dot"></cover-view>
+        <cover-view class="filter-text">私人</cover-view>
+      </cover-view>
+    </cover-view>
   </map>
 
   <!-- 小区信息卡片 -->
