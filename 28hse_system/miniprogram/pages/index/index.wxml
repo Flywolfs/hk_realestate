@@ -23,6 +23,10 @@
       <cover-view class="control-btn search-btn" bindtap="showSearch">
         <cover-view class="btn-text">搜索</cover-view>
       </cover-view>
+      <cover-view class="control-btn filter-btn {{hasActiveFilter ? 'active' : ''}}" bindtap="toggleFilterPanel">
+        <cover-view class="btn-text">筛选</cover-view>
+        <cover-view class="filter-badge" wx:if="{{hasActiveFilter}}"></cover-view>
+      </cover-view>
       <cover-view class="control-btn legend-btn" bindtap="toggleLegend">
         <cover-view class="btn-text">图例</cover-view>
       </cover-view>
@@ -71,8 +75,9 @@
   <!-- 底部统计面板 -->
   <view class="stats-panel-container" wx:if="{{showStats}}">
     <stats-panel 
-      estate-count="{{estateCount}}"
-      avg-ratio="{{avgRatio}}"
+      estate-count="{{hasActiveFilter ? filteredCount : estateCount}}"
+      avg-ratio="{{hasActiveFilter ? filteredAvgRatio : avgRatio}}"
+      is-filtered="{{hasActiveFilter}}"
     ></stats-panel>
   </view>
 
@@ -84,6 +89,94 @@
         max-value="{{maxRatio}}"
         bind:close="hideLegend"
       ></color-legend>
+    </view>
+  </view>
+
+  <!-- 筛选面板弹窗 -->
+  <view class="filter-modal" wx:if="{{showFilterPanel}}" bindtap="hideFilterPanel">
+    <view class="filter-panel" catchtap="preventClose">
+      <!-- 面板头部 -->
+      <view class="filter-header">
+        <text class="filter-title">筛选条件</text>
+        <view class="filter-actions">
+          <text class="clear-btn" bindtap="clearAllFilters">清除全部</text>
+          <view class="close-btn" bindtap="hideFilterPanel">×</view>
+        </view>
+      </view>
+      
+      <!-- 筛选内容 -->
+      <scroll-view class="filter-body" scroll-y="true">
+        <!-- 租售比区间筛选 -->
+        <view class="filter-section">
+          <view class="section-title">租售比区间</view>
+          <view class="filter-options">
+            <view 
+              class="filter-option {{item.selected ? 'selected' : ''}}" 
+              wx:for="{{rentRatioFilter.ranges}}" 
+              wx:key="value"
+              data-index="{{index}}"
+              bindtap="toggleRentRatioRange"
+            >
+              <text class="option-text">{{item.label}}</text>
+              <view class="check-icon" wx:if="{{item.selected}}">✓</view>
+            </view>
+          </view>
+        </view>
+        
+        <!-- 建成年份筛选 -->
+        <view class="filter-section">
+          <view class="section-title">建成年份</view>
+          <view class="filter-options">
+            <view 
+              class="filter-option {{item.selected ? 'selected' : ''}}" 
+              wx:for="{{yearFilter.ranges}}" 
+              wx:key="value"
+              data-index="{{index}}"
+              bindtap="toggleYearRange"
+            >
+              <text class="option-text">{{item.label}}</text>
+              <view class="check-icon" wx:if="{{item.selected}}">✓</view>
+            </view>
+          </view>
+        </view>
+        
+        <!-- 尺价筛选 -->
+        <view class="filter-section">
+          <view class="section-title">
+            <text>目标尺价</text>
+            <switch class="price-switch" checked="{{priceFilter.enabled}}" bindchange="togglePriceFilter" color="#667eea"/>
+          </view>
+          <view class="price-input-container" wx:if="{{priceFilter.enabled}}">
+            <input 
+              class="price-input" 
+              type="digit" 
+              placeholder="请输入目标尺价（港币/平方英尺）"
+              value="{{priceFilter.targetPrice}}"
+              bindinput="onPriceInput"
+            />
+            <text class="price-hint">将显示目标价±5%范围内的屋苑</text>
+          </view>
+        </view>
+      </scroll-view>
+      
+      <!-- 面板底部 -->
+      <view class="filter-footer">
+        <view class="filter-result-info">
+          <text class="result-count">{{filteredCount}}</text>
+          <text class="result-text">个屋苑符合条件</text>
+        </view>
+        <button class="apply-btn" bindtap="applyAllFilters">应用筛选</button>
+      </view>
+    </view>
+  </view>
+
+  <!-- 空结果提示 -->
+  <view class="empty-result" wx:if="{{!loading && hasActiveFilter && filteredCount === 0}}">
+    <view class="empty-content">
+      <text class="empty-icon">🔍</text>
+      <text class="empty-text">没有找到符合条件的屋苑</text>
+      <text class="empty-hint">请尝试调整筛选条件</text>
+      <button class="reset-filter-btn" bindtap="clearAllFilters">清除筛选</button>
     </view>
   </view>
 

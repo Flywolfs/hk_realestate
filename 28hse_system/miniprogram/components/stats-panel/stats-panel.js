@@ -8,6 +8,10 @@ Component({
     avgRatio: {
       type: [Number, String],
       value: 0
+    },
+    isFiltered: {
+      type: Boolean,
+      value: false
     }
   },
   

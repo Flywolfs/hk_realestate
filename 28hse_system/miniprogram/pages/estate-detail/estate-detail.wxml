@@ -32,6 +32,10 @@
         <text class="info-label">小学校网</text>
         <text class="info-value">{{estate.primary_school}}</text>
       </view>
+      <view class="info-row" wx:if="{{estate.avg_price_per_sqft}}">
+        <text class="info-label">平均尺价</text>
+        <text class="info-value">${{estate.avg_price_per_sqft}}/平方英尺</text>
+      </view>
     </view>
 
     <!-- 租售比趋势图 -->

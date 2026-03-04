@@ -1,12 +1,15 @@
 <!-- components/stats-panel/stats-panel.wxml -->
-<view class="stats-panel">
+<view class="stats-panel {{isFiltered ? 'filtered' : ''}}">
   <view class="stat-item">
-    <text class="label">小区总数</text>
+    <text class="label">{{isFiltered ? '筛选结果' : '小区总数'}}</text>
     <text class="value">{{estateCount}}</text>
   </view>
   <view class="divider"></view>
   <view class="stat-item">
     <text class="label">平均租售比</text>
     <text class="value">{{avgRatio}}%</text>
+  </view>
+  <view class="filter-indicator" wx:if="{{isFiltered}}">
+    <text class="filter-dot"></text>
   </view>
 </view>

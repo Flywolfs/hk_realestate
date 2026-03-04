@@ -8,6 +8,7 @@
   border-radius: 16rpx;
   padding: 30rpx 20rpx;
   box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.1);
+  position: relative;
 }
 
 .stat-item {
@@ -33,4 +34,28 @@
   width: 1rpx;
   height: 60rpx;
   background-color: #e0e0e0;
+}
+
+/* 筛选状态样式 */
+.stats-panel.filtered {
+  background-color: rgba(255, 255, 255, 0.95);
+  border: 2rpx solid #667eea;
+}
+
+.stats-panel.filtered .value {
+  color: #667eea;
+}
+
+.filter-indicator {
+  position: absolute;
+  top: 8rpx;
+  right: 8rpx;
+}
+
+.filter-dot {
+  display: block;
+  width: 16rpx;
+  height: 16rpx;
+  background-color: #667eea;
+  border-radius: 50%;
 }

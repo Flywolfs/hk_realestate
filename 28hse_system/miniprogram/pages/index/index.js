@@ -24,22 +24,58 @@ Page({
     avgRatio: 0,
     minRatio: 0,
     maxRatio: 10,
+    filteredCount: 0,    // 过滤后的数量
+    filteredAvgRatio: 0, // 过滤后的平均租售比
     
     // UI状态
     showStats: true,
     showLegend: false,
     loading: true,
+    showFilterPanel: false, // 筛选面板显示状态
     
     // 点击的marker信息（用于显示浮窗）
     selectedEstate: null,
     showEstateCard: false,
+    
+    // 高亮的marker ID
+    highlightedMarkerId: null,
     
     // 房屋类型筛选
     housingTypeFilter: {
       showPublic: true,    // 显示公屋
       showSubsidized: true, // 显示居屋
       showPrivate: true    // 显示私人屋苑
-    }
+    },
+    
+    // 租售比区间筛选
+    rentRatioFilter: {
+      ranges: [
+        { label: '<3%', value: 'lt3', min: 0, max: 3, selected: false },
+        { label: '3%-3.5%', value: '3-3.5', min: 3, max: 3.5, selected: false },
+        { label: '3.5%-4%', value: '3.5-4', min: 3.5, max: 4, selected: false },
+        { label: '4%-5%', value: '4-5', min: 4, max: 5, selected: false },
+        { label: '>5%', value: 'gt5', min: 5, max: 100, selected: false }
+      ]
+    },
+    
+    // 建成年份筛选
+    yearFilter: {
+      ranges: [
+        { label: '2010年后', value: 'after2010', min: 2010, max: 2100, selected: false },
+        { label: '2000-2010年', value: '2000-2010', min: 2000, max: 2010, selected: false },
+        { label: '1990-2000年', value: '1990-2000', min: 1990, max: 2000, selected: false },
+        { label: '1990年之前', value: 'before1990', min: 0, max: 1990, selected: false }
+      ]
+    },
+    
+    // 尺价筛选
+    priceFilter: {
+      targetPrice: '',  // 用户输入的目标尺价
+      enabled: false    // 是否启用尺价筛选
+    },
+    
+    // 是否有活跃筛选
+    hasActiveFilter: false
   },
 
   onLoad() {
@@ -150,7 +186,7 @@ Page({
 
   // 加载可视区域内的标记(性能优化)
   async loadMarkersInView() {
-    const { filteredEstates, centerLat, centerLng, scale, minRatio, maxRatio } = this.data
+    const { filteredEstates, centerLat, centerLng, scale, minRatio, maxRatio, highlightedMarkerId, selectedEstate } = this.data
     
     if (!filteredEstates || filteredEstates.length === 0) return
     
@@ -174,21 +210,42 @@ Page({
     
     console.log(`可视: ${visibleEstates.length}, 渲染: ${limitedEstates.length}`)
     
+    // 检查当前高亮的屋苑是否仍在可视区域内
+    let shouldClearHighlight = true
+    if (highlightedMarkerId !== null && selectedEstate) {
+      const highlightedEstateIndex = limitedEstates.findIndex(e => e.id === selectedEstate.estateId)
+      if (highlightedEstateIndex !== -1) {
+        shouldClearHighlight = false
+      }
+    }
+    
     // 收集当前需要的所有颜色，预生成尚未缓存的图标
     const colors = [...new Set(limitedEstates.map(e => getRentRatioColor(e.rent_ratio, minRatio, maxRatio)))]
     await Promise.all(colors.map(c => this._getOrCreateIcon(c)))
     
+    // 如果有高亮但屋苑不在可视区域，清除高亮状态
+    if (shouldClearHighlight && highlightedMarkerId !== null) {
+      this.setData({
+        highlightedMarkerId: null,
+        selectedEstate: null,
+        showEstateCard: false
+      })
+    }
+    
     // 构建 markers
     const markers = limitedEstates.map((estate, index) => {
       const color = getRentRatioColor(estate.rent_ratio, minRatio, maxRatio)
-      const iconPath = this._iconCache[color] || ''
+      const isHighlighted = !shouldClearHighlight && estate.id === selectedEstate.estateId
+      const iconPath = this._iconCache[isHighlighted ? `${color}_highlight` : color] || ''
+      
       return {
         id: index,
         latitude: estate.coordinates.latitude,
         longitude: estate.coordinates.longitude,
-        iconPath,        // 彩色圆形图标，本身即可点击
-        width: 22,
-        height: 22,
+        iconPath,
+        width: isHighlighted ? 28 : 22,
+        height: isHighlighted ? 28 : 22,
+        zIndex: isHighlighted ? 100 : 1,
         anchor: { x: 0.5, y: 0.5 },
         customData: {
           estateId: estate.id,
@@ -205,34 +262,65 @@ Page({
   },
 
   // 获取并缓存彩色圆形图标（基于 Canvas动态生成）
-  _getOrCreateIcon(color) {
+  _getOrCreateIcon(color, isHighlighted = false) {
     if (!this._iconCache) this._iconCache = {}
-    if (this._iconCache[color]) return Promise.resolve(this._iconCache[color])
+    
+    const cacheKey = isHighlighted ? `${color}_highlight` : color
+    if (this._iconCache[cacheKey]) return Promise.resolve(this._iconCache[cacheKey])
     
     return new Promise((resolve) => {
       try {
-        const size = 44  // 实际像素大小（设大一些以应对高分屏）
+        // 高亮状态使用更大的尺寸
+        const baseSize = 44
+        const size = isHighlighted ? 56 : baseSize
         const canvas = wx.createOffscreenCanvas({ type: '2d', width: size, height: size })
         const ctx = canvas.getContext('2d')
         
         ctx.clearRect(0, 0, size, size)
         
-        // 外圈白色轮廓，增强对地图的可读性
-        ctx.beginPath()
-        ctx.arc(size / 2, size / 2, size / 2 - 1, 0, 2 * Math.PI)
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)'
-        ctx.fill()
-        
-        // 内层彩色圆
-        ctx.beginPath()
-        ctx.arc(size / 2, size / 2, size / 2 - 4, 0, 2 * Math.PI)
-        ctx.fillStyle = color
-        ctx.fill()
+        if (isHighlighted) {
+          // 高亮状态：外圈发光效果
+          ctx.beginPath()
+          ctx.arc(size / 2, size / 2, size / 2 - 1, 0, 2 * Math.PI)
+          ctx.fillStyle = 'rgba(102, 126, 234, 0.3)'  // 紫色发光
+          ctx.fill()
+          
+          // 白色外圈
+          ctx.beginPath()
+          ctx.arc(size / 2, size / 2, size / 2 - 4, 0, 2 * Math.PI)
+          ctx.fillStyle = '#fff'
+          ctx.fill()
+          
+          // 彩色内圆（更大）
+          ctx.beginPath()
+          ctx.arc(size / 2, size / 2, size / 2 - 10, 0, 2 * Math.PI)
+          ctx.fillStyle = color
+          ctx.fill()
+          
+          // 中心白点
+          ctx.beginPath()
+          ctx.arc(size / 2, size / 2, size / 2 - 18, 0, 2 * Math.PI)
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.6)'
+          ctx.fill()
+        } else {
+          // 普通状态
+          // 外圈白色轮廓，增强对地图的可读性
+          ctx.beginPath()
+          ctx.arc(size / 2, size / 2, size / 2 - 1, 0, 2 * Math.PI)
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.85)'
+          ctx.fill()
+          
+          // 内层彩色圆
+          ctx.beginPath()
+          ctx.arc(size / 2, size / 2, size / 2 - 4, 0, 2 * Math.PI)
+          ctx.fillStyle = color
+          ctx.fill()
+        }
         
         wx.canvasToTempFilePath({
           canvas,
           success: (res) => {
-            this._iconCache[color] = res.tempFilePath
+            this._iconCache[cacheKey] = res.tempFilePath
             resolve(res.tempFilePath)
           },
           fail: (err) => {
@@ -249,8 +337,8 @@ Page({
 
   // 地图区域变化时重新加载标记
   onRegionChange(e) {
-    // 只在用户操作结束时触发更新
-    if (e.type === 'end' && e.causedBy === 'drag') {
+    // 只在用户操作结束时触发更新（包括拖拽和缩放）
+    if (e.type === 'end' && (e.causedBy === 'drag' || e.causedBy === 'scale')) {
       const mapCtx = wx.createMapContext('estate-map', this)
       
       // 清除之前的定时器,实现防抖
@@ -289,15 +377,90 @@ Page({
   },
 
   // 点击marker - 显示浮窗信息卡片
-  onMarkerTap(e) {
-    const marker = this.data.markers[e.detail.markerId]
+  async onMarkerTap(e) {
+    const markerId = e.detail.markerId
+    const marker = this.data.markers[markerId]
     if (marker && marker.customData) {
-      // 显示浮窗信息卡片
+      // 先清除之前的高亮
+      const previousHighlightedId = this.data.highlightedMarkerId
+      
+      // 获取该marker的颜色并生成高亮图标
+      const color = marker.customData.rentRatio ? 
+        getRentRatioColor(marker.customData.rentRatio, this.data.minRatio, this.data.maxRatio) : 
+        '#999'
+      
+      // 预生成高亮图标
+      await this._getOrCreateIcon(color, true)
+      
+      // 更新高亮状态
       this.setData({
         selectedEstate: marker.customData,
-        showEstateCard: true
+        showEstateCard: true,
+        highlightedMarkerId: markerId
       })
+      
+      // 更新markers以显示高亮效果
+      this.updateMarkerHighlight(markerId, previousHighlightedId)
     }
+  },
+  
+  // 更新marker高亮状态
+  updateMarkerHighlight(newHighlightedId, previousHighlightedId) {
+    const { markers, minRatio, maxRatio } = this.data
+    
+    const updatedMarkers = markers.map((marker, index) => {
+      const isHighlighted = index === newHighlightedId
+      const wasHighlighted = index === previousHighlightedId
+      
+      // 只有状态变化的marker才需要更新
+      if (!isHighlighted && !wasHighlighted) {
+        return marker
+      }
+      
+      const color = marker.customData.rentRatio ? 
+        getRentRatioColor(marker.customData.rentRatio, minRatio, maxRatio) : 
+        '#999'
+      
+      const iconPath = this._iconCache[isHighlighted ? `${color}_highlight` : color] || ''
+      
+      return {
+        ...marker,
+        iconPath,
+        width: isHighlighted ? 28 : 22,  // 高亮时更大
+        height: isHighlighted ? 28 : 22,
+        zIndex: isHighlighted ? 100 : 1   // 高亮时在最上层
+      }
+    })
+    
+    this.setData({ markers: updatedMarkers })
+  },
+  
+  // 清除marker高亮
+  clearMarkerHighlight() {
+    const { markers, minRatio, maxRatio, highlightedMarkerId } = this.data
+    
+    if (highlightedMarkerId === null) return
+    
+    const updatedMarkers = markers.map((marker) => {
+      const color = marker.customData.rentRatio ? 
+        getRentRatioColor(marker.customData.rentRatio, minRatio, maxRatio) : 
+        '#999'
+      
+      const iconPath = this._iconCache[color] || ''
+      
+      return {
+        ...marker,
+        iconPath,
+        width: 22,
+        height: 22,
+        zIndex: 1
+      }
+    })
+    
+    this.setData({ 
+      markers: updatedMarkers,
+      highlightedMarkerId: null
+    })
   },
   
   // 关闭信息卡片
@@ -306,12 +469,16 @@ Page({
       showEstateCard: false,
       selectedEstate: null
     })
+    // 清除高亮
+    this.clearMarkerHighlight()
   },
   
   // 查看详情
   viewEstateDetail() {
     const { selectedEstate } = this.data
     if (selectedEstate) {
+      // 清除高亮状态
+      this.clearMarkerHighlight()
       wx.navigateTo({
         url: `/pages/estate-detail/estate-detail?id=${selectedEstate.estateId}`
       })
@@ -371,8 +538,8 @@ Page({
       newFilter.showPrivate = !newFilter.showPrivate
     }
     
-    // 根据筛选条件过滤数据
-    const filteredEstates = allEstates.filter(estate => {
+    // 先应用房屋类型筛选
+    let filteredEstates = allEstates.filter(estate => {
       const housingType = estate.housing_type
       
       // gongwu = 公屋, juwu = 居屋, null = 私人屋苑
@@ -386,10 +553,16 @@ Page({
       }
     })
     
+    // 再应用其他筛选条件
+    filteredEstates = this.applyFilters(filteredEstates)
+    
     this.setData({
       housingTypeFilter: newFilter,
       filteredEstates: filteredEstates
     })
+    
+    // 更新过滤后的统计数据
+    this.updateFilteredStats(filteredEstates)
     
     // 重新加载地图标记
     this.loadMarkersInView()
@@ -417,5 +590,234 @@ Page({
   // 切换私人屋苑显示
   togglePrivate() {
     this.toggleHousingType('private')
+  },
+
+  // ========== 筛选面板相关方法 ==========
+  
+  // 显示/隐藏筛选面板
+  toggleFilterPanel() {
+    this.setData({ showFilterPanel: !this.data.showFilterPanel })
+  },
+  
+  hideFilterPanel() {
+    this.setData({ showFilterPanel: false })
+  },
+  
+  // 阻止事件冒泡
+  preventClose() {},
+  
+  // 切换租售比区间选择
+  toggleRentRatioRange(e) {
+    const { index } = e.currentTarget.dataset
+    const { rentRatioFilter } = this.data
+    const newRanges = [...rentRatioFilter.ranges]
+    newRanges[index].selected = !newRanges[index].selected
+    
+    this.setData({
+      'rentRatioFilter.ranges': newRanges
+    })
+  },
+  
+  // 切换建成年份区间选择
+  toggleYearRange(e) {
+    const { index } = e.currentTarget.dataset
+    const { yearFilter } = this.data
+    const newRanges = [...yearFilter.ranges]
+    newRanges[index].selected = !newRanges[index].selected
+    
+    this.setData({
+      'yearFilter.ranges': newRanges
+    })
+  },
+  
+  // 输入目标尺价
+  onPriceInput(e) {
+    const value = e.detail.value
+    this.setData({
+      'priceFilter.targetPrice': value
+    })
+  },
+  
+  // 切换尺价筛选启用状态
+  togglePriceFilter() {
+    const { priceFilter } = this.data
+    this.setData({
+      'priceFilter.enabled': !priceFilter.enabled
+    })
+  },
+  
+  // 应用所有筛选条件
+  applyAllFilters() {
+    const { allEstates, housingTypeFilter } = this.data
+    
+    // 先应用房屋类型筛选
+    let filteredEstates = allEstates.filter(estate => {
+      const housingType = estate.housing_type
+      if (housingType === 'gongwu') {
+        return housingTypeFilter.showPublic
+      } else if (housingType === 'juwu') {
+        return housingTypeFilter.showSubsidized
+      } else {
+        return housingTypeFilter.showPrivate
+      }
+    })
+    
+    // 再应用其他筛选条件
+    filteredEstates = this.applyFilters(filteredEstates)
+    
+    // 检查是否有活跃筛选
+    const hasActiveFilter = this.checkHasActiveFilter()
+    
+    this.setData({
+      filteredEstates: filteredEstates,
+      hasActiveFilter: hasActiveFilter,
+      showFilterPanel: false
+    })
+    
+    // 更新过滤后的统计数据
+    this.updateFilteredStats(filteredEstates)
+    
+    // 重新加载地图标记
+    this.loadMarkersInView()
+    
+    // 显示结果提示
+    wx.showToast({
+      title: `筛选完成，共${filteredEstates.length}个屋苑`,
+      icon: 'none',
+      duration: 2000
+    })
+  },
+  
+  // 清除所有筛选条件
+  clearAllFilters() {
+    const { rentRatioFilter, yearFilter, priceFilter } = this.data
+    
+    // 重置租售比筛选
+    const newRentRatioRanges = rentRatioFilter.ranges.map(r => ({ ...r, selected: false }))
+    
+    // 重置年份筛选
+    const newYearRanges = yearFilter.ranges.map(r => ({ ...r, selected: false }))
+    
+    this.setData({
+      'rentRatioFilter.ranges': newRentRatioRanges,
+      'yearFilter.ranges': newYearRanges,
+      'priceFilter.targetPrice': '',
+      'priceFilter.enabled': false,
+      hasActiveFilter: false
+    })
+    
+    // 重新应用房屋类型筛选
+    this.applyHousingTypeFilterOnly()
+    
+    wx.showToast({
+      title: '已清除所有筛选',
+      icon: 'success',
+      duration: 1500
+    })
+  },
+  
+  // 仅应用房屋类型筛选（用于清除其他筛选时）
+  applyHousingTypeFilterOnly() {
+    const { allEstates, housingTypeFilter } = this.data
+    
+    const filteredEstates = allEstates.filter(estate => {
+      const housingType = estate.housing_type
+      if (housingType === 'gongwu') {
+        return housingTypeFilter.showPublic
+      } else if (housingType === 'juwu') {
+        return housingTypeFilter.showSubsidized
+      } else {
+        return housingTypeFilter.showPrivate
+      }
+    })
+    
+    this.setData({
+      filteredEstates: filteredEstates,
+      showFilterPanel: false
+    })
+    
+    // 更新过滤后的统计数据
+    this.updateFilteredStats(filteredEstates)
+    
+    // 重新加载地图标记
+    this.loadMarkersInView()
+  },
+  
+  // 应用筛选条件到数据集
+  applyFilters(estates) {
+    const { rentRatioFilter, yearFilter, priceFilter } = this.data
+    
+    // 检查是否有租售比筛选
+    const selectedRatioRanges = rentRatioFilter.ranges.filter(r => r.selected)
+    const hasRatioFilter = selectedRatioRanges.length > 0
+    
+    // 检查是否有年份筛选
+    const selectedYearRanges = yearFilter.ranges.filter(r => r.selected)
+    const hasYearFilter = selectedYearRanges.length > 0
+    
+    // 检查是否有尺价筛选
+    const hasPriceFilter = priceFilter.enabled && priceFilter.targetPrice
+    const targetPrice = hasPriceFilter ? parseFloat(priceFilter.targetPrice) : 0
+    
+    return estates.filter(estate => {
+      // 租售比筛选
+      if (hasRatioFilter) {
+        const ratio = estate.rent_ratio
+        if (ratio === null || ratio === undefined) return false
+        const matchRatio = selectedRatioRanges.some(range => 
+          ratio >= range.min && ratio < range.max
+        )
+        if (!matchRatio) return false
+      }
+      
+      // 年份筛选
+      if (hasYearFilter) {
+        const year = estate.establish_year
+        if (!year) return false
+        const matchYear = selectedYearRanges.some(range => 
+          year >= range.min && year < range.max
+        )
+        if (!matchYear) return false
+      }
+      
+      // 尺价筛选 - 显示尺价在目标值±20%范围内的屋苑
+      if (hasPriceFilter) {
+        const price = estate.current_price_per_sqft
+        if (!price) return false
+        const tolerance = targetPrice * 0.05  // ±20%容差
+        if (price < targetPrice - tolerance || price > targetPrice + tolerance) {
+          return false
+        }
+      }
+      
+      return true
+    })
+  },
+  
+  // 检查是否有活跃筛选
+  checkHasActiveFilter() {
+    const { rentRatioFilter, yearFilter, priceFilter } = this.data
+    const hasRatioFilter = rentRatioFilter.ranges.some(r => r.selected)
+    const hasYearFilter = yearFilter.ranges.some(r => r.selected)
+    const hasPriceFilter = priceFilter.enabled && priceFilter.targetPrice
+    return hasRatioFilter || hasYearFilter || hasPriceFilter
+  },
+  
+  // 更新过滤后的统计数据
+  updateFilteredStats(filteredEstates) {
+    const count = filteredEstates.length
+    let avgRatio = 0
+    
+    if (count > 0) {
+      const totalRatio = filteredEstates.reduce((sum, estate) => {
+        return sum + (estate.rent_ratio || 0)
+      }, 0)
+      avgRatio = (totalRatio / count).toFixed(2)
+    }
+    
+    this.setData({
+      filteredCount: count,
+      filteredAvgRatio: avgRatio
+    })
   }
 })
