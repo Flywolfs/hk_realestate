@@ -70,7 +70,8 @@ class CentanetTransactionScraper:
         skip_existing_files: bool = False,
         skip_finished_file: str = None,
         earliest_date: str = None,
-        history_dir: str = None
+        history_dir: str = None,
+        skip_empty_file: str = None
     ):
         """
         初始化爬虫
@@ -85,6 +86,7 @@ class CentanetTransactionScraper:
             skip_finished_file: 已完成屋苑ID记录文件路径
             earliest_date: 最早日期字符串（格式 'YYYY-MM-DD'），用于过滤交易记录
             history_dir: 历史记录目录（上一次爬取的输出目录），用于增量更新
+            skip_empty_file: 空屋苑记录文件路径，跳过其中记录的无记录屋苑
         """
         self.session = requests.Session()
         self.request_interval = request_interval
@@ -94,6 +96,17 @@ class CentanetTransactionScraper:
         self.skip_finished_file = skip_finished_file
         self.earliest_date = earliest_date
         self.history_dir = history_dir
+        self.skip_empty_file = skip_empty_file
+        
+        # 空屋苑ID集合（从 skip_empty_file 加载）
+        self._empty_estate_ids: set = set()
+        if skip_empty_file:
+            self._empty_estate_ids = self._load_empty_estate_ids(skip_empty_file)
+        
+        # 空屋苑记录文件路径（固定路径，运行时追加写入）
+        self._empty_estate_file = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), 'empty_estate.txt'
+        )
         
         # 线程锁，用于保护共享资源
         self._lock = threading.Lock()
@@ -155,6 +168,42 @@ class CentanetTransactionScraper:
         
         # 已跳过的屋苑统计
         self.stats['skipped_estates'] = 0
+    
+    def _load_empty_estate_ids(self, file_path: str) -> set:
+        """
+        从空屋苑记录文件加载屋苑ID集合
+        
+        Args:
+            file_path: 空屋苑记录文件路径
+            
+        Returns:
+            屋苑ID集合
+        """
+        ids = set()
+        if not os.path.exists(file_path):
+            print(f"⚠ 空屋苑记录文件不存在: {file_path}")
+            return ids
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#'):
+                        ids.add(line)
+            print(f"✓ 从空屋苑记录文件加载了 {len(ids)} 个屋苑ID: {file_path}")
+        except Exception as e:
+            print(f"✗ 读取空屋苑记录文件失败: {e}")
+        return ids
+    
+    def _record_empty_estate(self, type_code: str):
+        """
+        将无记录的屋苑ID追加写入 empty_estate.txt（线程安全）
+        
+        Args:
+            type_code: 屋苑ID
+        """
+        with self._file_lock:
+            with open(self._empty_estate_file, 'a', encoding='utf-8') as f:
+                f.write(f"{type_code}\n")
     
     def _init_progress_file(self):
         """初始化进度记录文件"""
@@ -509,6 +558,9 @@ class CentanetTransactionScraper:
         total_count = first_response.get('count', 0)
         
         if total_count == 0:
+            # 记录到 empty_estate.txt（sale 和 rent 都无记录时各记一次，以 post_type 区分）
+            self._record_empty_estate(f"{estate_type_code}")
+            self._print_safe(f"    ℹ {estate_name} ({estate_type_code}) {type_name}无记录，已写入 empty_estate.txt")
             # API无记录，直接返回历史记录
             return history_records if history_records else []
         
@@ -729,6 +781,14 @@ class CentanetTransactionScraper:
             result['error'] = '爬取已被停止（Too Many Requests）'
             return result
         
+        # 检查是否在空屋苑列表中
+        if self._empty_estate_ids and estate_type_code in self._empty_estate_ids:
+            result['skipped_empty'] = True
+            self._print_safe(f"  [{thread_idx}/{total}] 跳过（空屋苑）: {estate_name} ({estate_type_code})")
+            # 仍需记录进度，避免重复处理
+            self._record_finished_estate(estate_type_code)
+            return result
+        
         self._print_safe(f"  [{thread_idx}/{total}] 处理: {estate_name} ({estate_type_code})")
         
         try:
@@ -852,7 +912,10 @@ class CentanetTransactionScraper:
         print(f"并发线程: {self.workers}")
         print(f"输出目录: {os.path.abspath(self.output_base_dir)}")
         print(f"进度文件: {self.progress_file}")
-        print(f"请求间隔: {self.request_interval} 秒\n")
+        print(f"请求间隔: {self.request_interval} 秒")
+        if self._empty_estate_ids:
+            print(f"空屋苑跳过: 已加载 {len(self._empty_estate_ids)} 个空屋苑ID")
+        print(f"空屋苑记录: {self._empty_estate_file}\n")
         
         # 重置停止标志
         self._stop_flag.clear()
@@ -991,6 +1054,9 @@ def main():
   # 增量更新（基于历史记录目录）
   python scrape_centanet_transactions.py --estate-info estate_info_20260221.json --history-dir transaction_record_20260221
   
+  # 跳过上次已确认无记录的屋苑（加速重复爬取）
+  python scrape_centanet_transactions.py --estate-info estate_info_20260221.json --skip-empty-file empty_estate.txt
+  
   # 其他参数
   python scrape_centanet_transactions.py --estate-info estate_info_20260221.json --max-estates 100 --interval 2.0
         """
@@ -1061,6 +1127,12 @@ def main():
         default=None,
         help='历史记录目录（上一次爬取的输出目录），用于增量更新。目录下应包含 sale/ 和 rent/ 子目录'
     )
+    parser.add_argument(
+        '--skip-empty-file',
+        type=str,
+        default=None,
+        help='空屋苑记录文件路径（如 empty_estate.txt），跳过其中记录的无交易记录屋苑'
+    )
     
     args = parser.parse_args()
     
@@ -1074,7 +1146,8 @@ def main():
         skip_existing_files=args.skip_existing_files,
         skip_finished_file=args.skip_finished_file,
         earliest_date=args.earliest_date,
-        history_dir=args.history_dir
+        history_dir=args.history_dir,
+        skip_empty_file=args.skip_empty_file
     )
     
     # 开始爬取
