@@ -69,7 +69,8 @@ class CentanetTransactionScraper:
         workers: int = 5,
         skip_existing_files: bool = False,
         skip_finished_file: str = None,
-        earliest_date: str = None
+        earliest_date: str = None,
+        history_dir: str = None
     ):
         """
         初始化爬虫
@@ -83,6 +84,7 @@ class CentanetTransactionScraper:
             skip_existing_files: 是否跳过已存在记录文件的屋苑
             skip_finished_file: 已完成屋苑ID记录文件路径
             earliest_date: 最早日期字符串（格式 'YYYY-MM-DD'），用于过滤交易记录
+            history_dir: 历史记录目录（上一次爬取的输出目录），用于增量更新
         """
         self.session = requests.Session()
         self.request_interval = request_interval
@@ -91,6 +93,7 @@ class CentanetTransactionScraper:
         self.skip_existing_files = skip_existing_files
         self.skip_finished_file = skip_finished_file
         self.earliest_date = earliest_date
+        self.history_dir = history_dir
         
         # 线程锁，用于保护共享资源
         self._lock = threading.Lock()
@@ -264,6 +267,37 @@ class CentanetTransactionScraper:
         
         return estates
     
+    def load_history_records(
+        self, 
+        estate_type_code: str,
+        post_type: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        从历史目录中加载指定屋苑的历史记录
+        
+        Args:
+            estate_type_code: 屋苑ID
+            post_type: 记录类型 ("Sale" 或 "Rent")
+            
+        Returns:
+            历史记录字典（来自历史JSON文件的原始结构），不存在则返回None
+        """
+        if not self.history_dir:
+            return None
+        
+        sub_dir = "sale" if post_type == self.POST_TYPE_SALE else "rent"
+        history_file = os.path.join(self.history_dir, sub_dir, f"{estate_type_code}.json")
+        
+        if not os.path.exists(history_file):
+            return None
+        
+        try:
+            with open(history_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            self._print_safe(f"    ⚠ 加载历史记录失败 ({estate_type_code}/{sub_dir}): {e}")
+            return None
+    
     def _get_session(self) -> requests.Session:
         """
         获取当前线程的Session对象
@@ -419,22 +453,26 @@ class CentanetTransactionScraper:
         self, 
         estate: Dict[str, Any],
         post_type: str,
-        earliest_date: str = None
+        earliest_date: str = None,
+        history_records: List[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
         """
-        获取指定屋苑的所有交易记录（支持分页和日期过滤）
+        获取指定屋苑的所有交易记录（支持分页、日期过滤、增量更新）
         
         Args:
             estate: 屋苑信息字典
             post_type: 记录类型 ("Sale" 或 "Rent")
             earliest_date: 最早日期字符串（格式 'YYYY-MM-DD'），记录按日期降序排列，
                           当最后一条记录日期早于此日期时停止获取
+            history_records: 历史记录列表（来自 history_dir 的历史文件），
+                          第一条记录的 id 即为屋苑上一次爬取的最新交易记录
             
         Returns:
-            交易记录列表
+            最终记录列表（增量新记录 + 历史记录，或仅新记录）
         """
         estate_type_code = estate.get('typeCode', '')
         estate_name = estate.get('estateName', '未知屋苑')
+        type_name = self._get_post_type_name(post_type)
         
         # 解析最早日期
         earliest_date_obj = None
@@ -443,8 +481,16 @@ class CentanetTransactionScraper:
             if earliest_date_obj:
                 self._print_safe(f"    最早日期过滤: {earliest_date}")
         
-        all_records = []
+        # 获取历史最新记录ID（第一条记录，即日期最新）
+        history_latest_id = None
+        if history_records:
+            history_latest_id = history_records[0].get('id')
+            if history_latest_id:
+                self._print_safe(f"    增量模式: 历史最新记录ID={history_latest_id}")
+        
+        new_records = []       # 本次新报溢出来的记录
         stopped_by_date = False
+        stopped_by_id = False
         
         # 第一次请求，获取总记录数
         first_response = self.fetch_transactions(
@@ -455,79 +501,153 @@ class CentanetTransactionScraper:
         )
         
         if not first_response:
-            self._print_safe(f"    ✗ 获取 {estate_name} 的{self._get_post_type_name(post_type)}记录失败")
-            return []
+            self._print_safe(f"    ✗ 获取 {estate_name} 的{type_name}记录失败")
+            # 请求失败时，若有历史记录则直接返回历史记录
+            return history_records if history_records else []
         
         # 获取总记录数
         total_count = first_response.get('count', 0)
         
         if total_count == 0:
-            return []
+            # API无记录，直接返回历史记录
+            return history_records if history_records else []
         
-        # 添加第一批数据
+        # 处理第一页数据
         if 'data' in first_response and isinstance(first_response['data'], list):
             first_page_records = first_response['data']
-            all_records.extend(first_page_records)
             
-            # 检查第一批数据的最后一条记录日期
-            if earliest_date_obj and first_page_records:
-                last_record = first_page_records[-1]
-                # 获取日期字段
-                record_date_str = last_record.get('insDate')
-                if record_date_str:
-                    record_date = self._parse_date(record_date_str)
-                    if record_date and record_date < earliest_date_obj:
-                        stopped_by_date = True
-                        self._print_safe(f"    ⏹ 最后一条记录日期 {record_date} 早于 {earliest_date}，停止获取")
+            # 检查是否在第一页中应该停止（增量 ID 匹配或日期截断）
+            page_new, stopped_by_id, stopped_by_date = self._filter_page_by_stop_conditions(
+                page_records=first_page_records,
+                history_latest_id=history_latest_id,
+                earliest_date_obj=earliest_date_obj,
+                earliest_date=earliest_date,
+                page_num=1
+            )
+            new_records.extend(page_new)
         
-        # 计算是否需要分页（如果没有被日期过滤停止）
-        if total_count <= self.MAX_PAGE_SIZE or stopped_by_date:
-            self._print_safe(f"    ✓ {self._get_post_type_name(post_type)}记录: {len(all_records)} 条 (共1页)")
-            return all_records
+        # 计算是否需要分页
+        if total_count <= self.MAX_PAGE_SIZE or stopped_by_id or stopped_by_date:
+            result = self._merge_with_history(new_records, history_records, stopped_by_id)
+            suffix = self._build_stop_suffix(stopped_by_id, stopped_by_date)
+            self._print_safe(f"    ✓ {type_name}记录: {len(result)} 条 (共1页{suffix})")
+            return result
         
-        # 计算需要的页数
+        # 计算页数
         total_pages = (total_count + self.MAX_PAGE_SIZE - 1) // self.MAX_PAGE_SIZE
-        
-        # 显示分页进度（第一页已获取）
-        self._print_safe(f"    {self._get_post_type_name(post_type)}记录: 共 {total_count} 条, {total_pages} 页")
+        self._print_safe(f"    {type_name}记录: 共 {total_count} 条, {total_pages} 页")
         
         # 获取剩余页面
         for page in range(1, total_pages):
-            offset = page * self.MAX_PAGE_SIZE
-            
-            # 请求间隔
             time.sleep(self.request_interval)
             
             response = self.fetch_transactions(
                 estate_type_code=estate_type_code,
                 post_type=post_type,
-                offset=offset,
+                offset=page * self.MAX_PAGE_SIZE,
                 size=self.MAX_PAGE_SIZE
             )
             
             if response and 'data' in response and isinstance(response['data'], list):
                 page_records = response['data']
-                all_records.extend(page_records)
                 
-                # 检查本页最后一条记录日期
-                if earliest_date_obj and page_records:
-                    last_record = page_records[-1]
-                    record_date_str = last_record.get('insDate')
-                    if record_date_str:
-                        record_date = self._parse_date(record_date_str)
-                        if record_date and record_date < earliest_date_obj:
-                            stopped_by_date = True
-                            self._print_safe(f"    ⏹ 第{page + 1}页最后记录日期 {record_date} 早于 {earliest_date}，停止获取")
-                            break
+                page_new, stopped_by_id, stopped_by_date = self._filter_page_by_stop_conditions(
+                    page_records=page_records,
+                    history_latest_id=history_latest_id,
+                    earliest_date_obj=earliest_date_obj,
+                    earliest_date=earliest_date,
+                    page_num=page + 1
+                )
+                new_records.extend(page_new)
+                
+                if stopped_by_id or stopped_by_date:
+                    break
             else:
                 self._print_safe(f"    ⚠ 获取 {estate_name} 第 {page + 1} 页数据失败")
         
-        if stopped_by_date:
-            self._print_safe(f"    ✓ {self._get_post_type_name(post_type)}记录: {len(all_records)} 条 (因日期过滤提前结束)")
-        else:
-            self._print_safe(f"    ✓ {self._get_post_type_name(post_type)}记录: {len(all_records)} 条")
+        result = self._merge_with_history(new_records, history_records, stopped_by_id)
+        suffix = self._build_stop_suffix(stopped_by_id, stopped_by_date)
+        self._print_safe(f"    ✓ {type_name}记录: {len(result)} 条{suffix}")
+        return result
+    
+    def _filter_page_by_stop_conditions(
+        self,
+        page_records: List[Dict[str, Any]],
+        history_latest_id,
+        earliest_date_obj,
+        earliest_date: str,
+        page_num: int
+    ):
+        """
+        对单页记录按停止条件进行截断处理
         
-        return all_records
+        Args:
+            page_records: 本页记录列表
+            history_latest_id: 历史最新记录的ID
+            earliest_date_obj: 最早日期对象
+            earliest_date: 最早日期字符串（用于打印）
+            page_num: 页码（用于打印）
+            
+        Returns:
+            (filtered_records, stopped_by_id, stopped_by_date)
+        """
+        stopped_by_id = False
+        stopped_by_date = False
+        filtered = []
+        
+        for record in page_records:
+            # 条件一：检查是否匹配历史最新记录ID
+            if history_latest_id and record.get('id') == history_latest_id:
+                stopped_by_id = True
+                self._print_safe(f"    ⏹ 第{page_num}页匹配历史最新记录ID={history_latest_id}，停止新记录获取")
+                break  # 这条及之后的记录都属于历史记录，不再添加
+            
+            # 条件二：检查日期截断
+            if earliest_date_obj:
+                record_date_str = record.get('insDate')
+                if record_date_str:
+                    record_date = self._parse_date(record_date_str)
+                    if record_date and record_date < earliest_date_obj:
+                        stopped_by_date = True
+                        self._print_safe(
+                            f"    ⏹ 第{page_num}页记录日期 {record_date} "
+                            f"早于 {earliest_date}，停止获取"
+                        )
+                        break  # 这条及之后的记录日期更早，不再添加
+            
+            filtered.append(record)
+        
+        return filtered, stopped_by_id, stopped_by_date
+    
+    def _merge_with_history(
+        self,
+        new_records: List[Dict[str, Any]],
+        history_records: Optional[List[Dict[str, Any]]],
+        stopped_by_id: bool
+    ) -> List[Dict[str, Any]]:
+        """
+        将新记录与历史记录拼接
+        
+        Args:
+            new_records: 新爬取的记录
+            history_records: 历史记录，可为None
+            stopped_by_id: 是否因ID匹配而停止（才需拼接）
+            
+        Returns:
+            拼接后的记录列表
+        """
+        if stopped_by_id and history_records:
+            merged = new_records + history_records
+            return merged
+        return new_records
+    
+    def _build_stop_suffix(self, stopped_by_id: bool, stopped_by_date: bool) -> str:
+        """生成停止原因的辅助文字"""
+        if stopped_by_id:
+            return " (增量更新完成)"
+        if stopped_by_date:
+            return " (日期截断)"
+        return ""
     
     def save_records(
         self, 
@@ -612,12 +732,19 @@ class CentanetTransactionScraper:
         self._print_safe(f"  [{thread_idx}/{total}] 处理: {estate_name} ({estate_type_code})")
         
         try:
+            # 加载历史记录（增量更新用）
+            sale_history = self.load_history_records(estate_type_code, self.POST_TYPE_SALE)
+            history_sale_records = sale_history.get('data', []) if sale_history else None
+            rent_history = self.load_history_records(estate_type_code, self.POST_TYPE_RENT)
+            history_rent_records = rent_history.get('data', []) if rent_history else None
+            
             # 爬取销售记录
             self._print_safe(f"    [{thread_idx}] 获取销售记录...")
             sale_records = self.fetch_all_transactions_for_estate(
                 estate=estate,
                 post_type=self.POST_TYPE_SALE,
-                earliest_date=self.earliest_date
+                earliest_date=self.earliest_date,
+                history_records=history_sale_records
             )
             
             if sale_records:
@@ -646,7 +773,8 @@ class CentanetTransactionScraper:
             rent_records = self.fetch_all_transactions_for_estate(
                 estate=estate,
                 post_type=self.POST_TYPE_RENT,
-                earliest_date=self.earliest_date
+                earliest_date=self.earliest_date,
+                history_records=history_rent_records
             )
             
             if rent_records:
@@ -860,6 +988,9 @@ def main():
   # 使用最早日期过滤（只获取2025-01-01之后的记录）
   python scrape_centanet_transactions.py --estate-info estate_info_20260221.json --earliest-date 2025-01-01
   
+  # 增量更新（基于历史记录目录）
+  python scrape_centanet_transactions.py --estate-info estate_info_20260221.json --history-dir transaction_record_20260221
+  
   # 其他参数
   python scrape_centanet_transactions.py --estate-info estate_info_20260221.json --max-estates 100 --interval 2.0
         """
@@ -924,6 +1055,12 @@ def main():
         default=None,
         help='最早日期过滤（格式 YYYY-MM-DD），当记录日期早于此日期时停止获取'
     )
+    parser.add_argument(
+        '--history-dir',
+        type=str,
+        default=None,
+        help='历史记录目录（上一次爬取的输出目录），用于增量更新。目录下应包含 sale/ 和 rent/ 子目录'
+    )
     
     args = parser.parse_args()
     
@@ -936,7 +1073,8 @@ def main():
         workers=args.workers,
         skip_existing_files=args.skip_existing_files,
         skip_finished_file=args.skip_finished_file,
-        earliest_date=args.earliest_date
+        earliest_date=args.earliest_date,
+        history_dir=args.history_dir
     )
     
     # 开始爬取
