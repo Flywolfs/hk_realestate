@@ -7,25 +7,66 @@
 const app = getApp()
 const BASE_URL = 'http://192.168.31.33:5000/api'  // 开发环境,上线前需替换为HTTPS域名
 
+// Token存储键名
+const TOKEN_KEY = 'auth_token'
+
+/**
+ * 获取存储的Token
+ * @returns {string|null} Token字符串
+ */
+function getToken() {
+  return wx.getStorageSync(TOKEN_KEY) || null
+}
+
+/**
+ * 设置Token
+ * @param {string} token - Token字符串
+ */
+function setToken(token) {
+  wx.setStorageSync(TOKEN_KEY, token)
+}
+
+/**
+ * 清除Token
+ */
+function clearToken() {
+  wx.removeStorageSync(TOKEN_KEY)
+}
+
 /**
  * 封装wx.request
  * @param {string} url - 请求路径
  * @param {string} method - 请求方法
  * @param {object} data - 请求数据
+ * @param {boolean} requireAuth - 是否需要登录
  * @returns {Promise} Promise对象
  */
-function request(url, method = 'GET', data = {}) {
+function request(url, method = 'GET', data = {}, requireAuth = false) {
   return new Promise((resolve, reject) => {
+    const header = {
+      'Content-Type': 'application/json'
+    }
+    
+    // 如果需要认证，添加Token
+    if (requireAuth) {
+      const token = getToken()
+      if (token) {
+        header['Authorization'] = `Bearer ${token}`
+      }
+    }
+    
     wx.request({
       url: `${BASE_URL}${url}`,
       method: method,
       data: data,
-      header: {
-        'Content-Type': 'application/json'
-      },
+      header: header,
       success(res) {
         if (res.statusCode === 200) {
           resolve(res.data)
+        } else if (res.statusCode === 401) {
+          // Token过期或无效，清除Token并提示登录
+          clearToken()
+          reject({ ...res.data, needLogin: true })
         } else {
           const error = new Error(`请求失败: ${res.statusCode}`)
           error.statusCode = res.statusCode
@@ -38,6 +79,96 @@ function request(url, method = 'GET', data = {}) {
       }
     })
   })
+}
+
+/**
+ * 微信登录
+ * 获取code并发送到后端换取Token
+ * @returns {Promise} 登录结果
+ */
+function wechatLogin() {
+  return new Promise((resolve, reject) => {
+    wx.login({
+      success: (res) => {
+        if (res.code) {
+          // 获取用户信息（可选，需要用户授权）
+          wx.getUserProfile({
+            desc: '用于完善用户资料',
+            success: (userRes) => {
+              // 发送code和用户信息到后端
+              request('/auth/login', 'POST', {
+                code: res.code,
+                userInfo: userRes.userInfo
+              }).then(loginRes => {
+                if (loginRes.success && loginRes.data.token) {
+                  setToken(loginRes.data.token)
+                  resolve({
+                    success: true,
+                    userInfo: userRes.userInfo,
+                    token: loginRes.data.token
+                  })
+                } else {
+                  reject(new Error('登录失败'))
+                }
+              }).catch(reject)
+            },
+            fail: () => {
+              // 用户拒绝授权，仍然可以登录，只是没有用户信息
+              request('/auth/login', 'POST', {
+                code: res.code,
+                userInfo: {}
+              }).then(loginRes => {
+                if (loginRes.success && loginRes.data.token) {
+                  setToken(loginRes.data.token)
+                  resolve({
+                    success: true,
+                    userInfo: null,
+                    token: loginRes.data.token
+                  })
+                } else {
+                  reject(new Error('登录失败'))
+                }
+              }).catch(reject)
+            }
+          })
+        } else {
+          reject(new Error('获取code失败'))
+        }
+      },
+      fail: reject
+    })
+  })
+}
+
+/**
+ * 检查登录状态
+ * @returns {Promise} 验证结果
+ */
+function checkLoginStatus() {
+  const token = getToken()
+  if (!token) {
+    return Promise.resolve({ valid: false })
+  }
+  
+  return request('/auth/verify', 'GET', {})
+    .then(res => {
+      if (res.success && res.valid) {
+        return { valid: true, userInfo: res.data }
+      }
+      clearToken()
+      return { valid: false }
+    })
+    .catch(() => {
+      clearToken()
+      return { valid: false }
+    })
+}
+
+/**
+ * 退出登录
+ */
+function logout() {
+  clearToken()
 }
 
 /**
@@ -83,9 +214,17 @@ function getPrimarySchools() {
 }
 
 module.exports = {
+  // 数据API
   getAllEstates,
   getEstateDetail,
   getRentRatioStats,
   searchEstates,
-  getPrimarySchools
+  getPrimarySchools,
+  // 登录相关
+  wechatLogin,
+  checkLoginStatus,
+  logout,
+  getToken,
+  // 带认证的请求（需要登录才能访问）
+  requestWithAuth: (url, method = 'GET', data = {}) => request(url, method, data, true)
 }

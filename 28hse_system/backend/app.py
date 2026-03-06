@@ -15,6 +15,10 @@ from functools import wraps
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils.data_loader import DataLoader
+from auth import (
+    get_wechat_session, generate_token, verify_token, 
+    login_required, get_user_stats, log_user_access
+)
 
 app = Flask(__name__, static_folder='../frontend/dist', static_url_path='')
 
@@ -263,6 +267,117 @@ def get_primary_schools():
         })
     except Exception as e:
         logger.error(f"Error in get_primary_schools: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/auth/login', methods=['POST'])
+@rate_limit
+def wechat_login():
+    """
+    微信小程序登录接口
+    接收code，返回JWT Token
+    
+    请求体: {"code": "xxx", "userInfo": {...}}
+    """
+    try:
+        data = request.get_json()
+        code = data.get('code')
+        user_info = data.get('userInfo', {})
+        
+        if not code:
+            return jsonify({
+                'success': False,
+                'error': '缺少code参数'
+            }), 400
+        
+        # 获取微信session
+        session_data = get_wechat_session(code)
+        if not session_data:
+            return jsonify({
+                'success': False,
+                'error': '微信登录失败，请重试'
+            }), 401
+        
+        openid = session_data['openid']
+        
+        # 生成JWT Token
+        token = generate_token(openid, user_info)
+        
+        # 记录登录
+        log_user_access(openid, '/api/auth/login')
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'token': token,
+                'openid': openid,  # 注意：生产环境建议不要返回openid
+                'expires_in': 30 * 24 * 3600  # 30天，单位秒
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in wechat_login: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': '登录失败，请重试'
+        }), 500
+
+
+@app.route('/api/auth/verify', methods=['GET'])
+@rate_limit
+def verify_user_token():
+    """
+    验证Token是否有效
+    用于小程序启动时检查登录状态
+    """
+    auth_header = request.headers.get('Authorization', '')
+    
+    if not auth_header.startswith('Bearer '):
+        return jsonify({
+            'success': False,
+            'valid': False,
+            'error': '缺少Token'
+        }), 401
+    
+    token = auth_header[7:]
+    payload = verify_token(token)
+    
+    if payload:
+        return jsonify({
+            'success': True,
+            'valid': True,
+            'data': {
+                'openid': payload.get('openid'),
+                'nickname': payload.get('nickname', ''),
+                'avatar': payload.get('avatar', '')
+            }
+        })
+    else:
+        return jsonify({
+            'success': False,
+            'valid': False,
+            'error': 'Token已过期或无效'
+        }), 401
+
+
+@app.route('/api/user/stats', methods=['GET'])
+@rate_limit
+def get_user_access_stats():
+    """
+    获取用户访问统计（仅管理员使用）
+    生产环境应添加管理员权限验证
+    """
+    try:
+        stats = get_user_stats()
+        return jsonify({
+            'success': True,
+            'data': stats
+        })
+    except Exception as e:
+        logger.error(f"Error in get_user_access_stats: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
             'error': str(e)

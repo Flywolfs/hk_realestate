@@ -1,10 +1,13 @@
 // app.js - 小程序主入口文件
+const api = require('./utils/api.js')
+
 App({
   globalData: {
     // 全局数据,用于页面间传递信息
     locateEstate: null,  // 从详情页返回时定位到的小区信息
     apiBaseUrl: 'http://192.168.31.33:5000/api',  // API基础URL,开发时使用,上线前需替换为HTTPS域名
-    userInfo: null
+    userInfo: null,
+    isLoggedIn: false  // 登录状态
   },
 
   onLaunch(options) {
@@ -16,6 +19,9 @@ App({
     
     // 获取系统信息
     this.getSystemInfo()
+    
+    // 检查登录状态
+    this.checkLoginStatus()
   },
 
   onShow(options) {
@@ -66,5 +72,41 @@ App({
     const systemInfo = wx.getSystemInfoSync()
     this.globalData.systemInfo = systemInfo
     console.log('系统信息:', systemInfo)
+  },
+
+  // 检查登录状态
+  checkLoginStatus() {
+    api.checkLoginStatus().then(res => {
+      if (res.valid) {
+        this.globalData.isLoggedIn = true
+        this.globalData.userInfo = res.userInfo
+        console.log('用户已登录:', res.userInfo)
+      } else {
+        this.globalData.isLoggedIn = false
+        console.log('用户未登录')
+      }
+    })
+  },
+
+  // 执行登录
+  doLogin() {
+    return new Promise((resolve, reject) => {
+      api.wechatLogin().then(res => {
+        if (res.success) {
+          this.globalData.isLoggedIn = true
+          this.globalData.userInfo = res.userInfo
+          resolve(res)
+        } else {
+          reject(new Error('登录失败'))
+        }
+      }).catch(reject)
+    })
+  },
+
+  // 退出登录
+  doLogout() {
+    api.logout()
+    this.globalData.isLoggedIn = false
+    this.globalData.userInfo = null
   }
 })

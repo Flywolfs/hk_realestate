@@ -75,7 +75,10 @@ Page({
     },
     
     // 是否有活跃筛选
-    hasActiveFilter: false
+    hasActiveFilter: false,
+    
+    // 登录弹窗显示状态
+    showLoginModal: false
   },
 
   onLoad() {
@@ -83,6 +86,11 @@ Page({
     // 页面加载时初始化
     this.loadRentRatioStats()
     this.loadEstates()
+    
+    // 检查是否需要显示登录弹窗（延迟2秒显示，避免打扰）
+    setTimeout(() => {
+      this.checkAndShowLoginModal()
+    }, 2000)
   },
 
   onShow() {
@@ -819,5 +827,64 @@ Page({
       filteredCount: count,
       filteredAvgRatio: avgRatio
     })
+  },
+
+  // ========== 登录相关方法 ==========
+  
+  // 检查并显示登录弹窗
+  checkAndShowLoginModal() {
+    const app = getApp()
+    // 如果用户未登录，且今天还没有提示过，则显示登录弹窗
+    if (!app.globalData.isLoggedIn) {
+      const lastPromptDate = wx.getStorageSync('last_login_prompt_date')
+      const today = new Date().toDateString()
+      
+      // 每天只提示一次
+      if (lastPromptDate !== today) {
+        this.setData({ showLoginModal: true })
+      }
+    }
+  },
+  
+  // 关闭登录弹窗
+  closeLoginModal() {
+    this.setData({ showLoginModal: false })
+  },
+  
+  // 处理登录
+  handleLogin() {
+    const app = getApp()
+    
+    wx.showLoading({ title: '登录中...' })
+    
+    app.doLogin().then(res => {
+      wx.hideLoading()
+      
+      // 记录今天已提示
+      wx.setStorageSync('last_login_prompt_date', new Date().toDateString())
+      
+      this.setData({ showLoginModal: false })
+      
+      wx.showToast({
+        title: '登录成功',
+        icon: 'success'
+      })
+      
+      console.log('用户登录成功:', res.userInfo)
+    }).catch(err => {
+      wx.hideLoading()
+      console.error('登录失败:', err)
+      wx.showToast({
+        title: '登录失败，请重试',
+        icon: 'none'
+      })
+    })
+  },
+  
+  // 以游客身份继续
+  continueAsGuest() {
+    // 记录今天已提示，今天不再显示
+    wx.setStorageSync('last_login_prompt_date', new Date().toDateString())
+    this.setData({ showLoginModal: false })
   }
 })
