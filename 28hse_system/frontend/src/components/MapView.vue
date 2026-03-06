@@ -244,19 +244,23 @@ export default {
         
         const detail = response.data
         
-        // 检查是否有时序数据
+        // 检查是否有租售比时序数据
         const hasTimeseries = detail.overall_ratio_timeseries && 
                              Object.keys(detail.overall_ratio_timeseries).length > 0
         
+        // 检查是否有尺价趋势时序数据
+        const hasPriceTrend = detail.price_trend_timeseries &&
+                             Object.keys(detail.price_trend_timeseries).length > 0
+        
         // 将时序数据存储在marker上，供后续使用
-        if (hasTimeseries) {
-          marker._chartData = {
-            estateId: estateId,
-            timeseries: detail.overall_ratio_timeseries
-          }
-        } else {
-          marker._chartData = null
-        }
+        marker._chartData = hasTimeseries ? {
+          estateId: estateId,
+          timeseries: detail.overall_ratio_timeseries
+        } : null
+        marker._priceTrendData = hasPriceTrend ? {
+          estateId: estateId,
+          timeseries: detail.price_trend_timeseries
+        } : null
         
         // 构建Popup内容
         const popupContent = `
@@ -305,6 +309,15 @@ export default {
               </div>
             ` : ''}
             
+            ${hasPriceTrend ? `
+              <div class="popup-section chart-section">
+                <strong>尺价趋势:</strong>
+                <div class="chart-container">
+                  <canvas id="price-chart-${estateId}"></canvas>
+                </div>
+              </div>
+            ` : ''}
+            
             ${detail.room_type_ratio && Object.keys(detail.room_type_ratio).length > 0 ? `
               <div class="popup-section room-type-section">
                 <strong>户型租售比:</strong>
@@ -337,6 +350,11 @@ export default {
                 this.renderTrendChart(marker._chartData.estateId, marker._chartData.timeseries)
               }, 100)
             }
+            if (marker._priceTrendData) {
+              setTimeout(() => {
+                this.renderPriceTrendChart(marker._priceTrendData.estateId, marker._priceTrendData.timeseries)
+              }, 100)
+            }
           })
         } else {
           // popup已存在，只更新内容
@@ -350,6 +368,11 @@ export default {
         if (hasTimeseries && marker.isPopupOpen()) {
           setTimeout(() => {
             this.renderTrendChart(estateId, detail.overall_ratio_timeseries)
+          }, 100)
+        }
+        if (hasPriceTrend && marker.isPopupOpen()) {
+          setTimeout(() => {
+            this.renderPriceTrendChart(estateId, detail.price_trend_timeseries)
           }, 100)
         }
       } catch (err) {
@@ -432,6 +455,96 @@ export default {
               title: {
                 display: true,
                 text: '租售比 (%)'
+              }
+            },
+            x: {
+              ticks: {
+                maxRotation: 45,
+                minRotation: 45,
+                font: {
+                  size: 10
+                }
+              },
+              title: {
+                display: true,
+                text: '月份'
+              }
+            }
+          }
+        }
+      })
+    },
+    
+    renderPriceTrendChart(estateId, timeseriesData) {
+      const canvasId = `price-chart-${estateId}`
+      const canvas = document.getElementById(canvasId)
+      
+      if (!canvas) {
+        console.warn(`找不到尺价图表canvas元素: ${canvasId}`)
+        return
+      }
+      
+      // 销毁旧图表
+      const existingChart = Chart.getChart(canvasId)
+      if (existingChart) {
+        existingChart.destroy()
+      }
+      
+      if (!document.getElementById(canvasId)) return
+      
+      // 准备数据
+      const months = Object.keys(timeseriesData).sort()
+      const values = months.map(month => timeseriesData[month])
+      
+      // 计算纵轴范围
+      const minValue = Math.min(...values)
+      const maxValue = Math.max(...values)
+      const padding = (maxValue - minValue) * 0.1 || 500
+      
+      // 绘制图表
+      new Chart(canvas, {
+        type: 'line',
+        data: {
+          labels: months,
+          datasets: [{
+            label: '尺价 (元/平方尺)',
+            data: values,
+            borderColor: '#FF7043',
+            backgroundColor: 'rgba(255, 112, 67, 0.1)',
+            tension: 0.3,
+            fill: true,
+            pointRadius: 4,
+            pointHoverRadius: 6
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: false
+            },
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  return `尺价: ${Math.round(context.parsed.y).toLocaleString()} 元/平方尺`
+                }
+              }
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: false,
+              min: Math.max(0, minValue - padding),
+              max: maxValue + padding,
+              ticks: {
+                callback: function(value) {
+                  return Math.round(value).toLocaleString()
+                }
+              },
+              title: {
+                display: true,
+                text: '元/平方尺'
               }
             },
             x: {

@@ -22,11 +22,16 @@ class DataLoader:
         # self.rent_ratio_path = '/home/zhangchi/Documents/28hse/28hse_system/average_rent_sale_ratio.json'
         self.housing_types_path = os.path.join(base_path, 'housing_types.json')
         
+        # 尺价趋势文件路径（typeCode格式 ID）
+        self.price_trend_path = '/home/zhangchi/Documents/28hse/centanet_system/crawler/monthly_price_trend_20260306.json'
+        # estate_info源文件，用于typeCode->name映射
+        self.estate_info_path = '/home/zhangchi/Documents/28hse/centanet_system/crawler/estate_info_20260221.json'
+        
         # 设置交易数据路径（默认值）
         if transaction_buy_path:
             self.transaction_buy_path = transaction_buy_path
         else:
-            self.transaction_buy_path = "/home/zhangchi/Documents/28hse/centanet_system/crawler/transaction_record_20260223_trans/buy"
+            self.transaction_buy_path = "/home/zhangchi/Documents/28hse/centanet_system/crawler/transaction_record_20260306_trans/buy"
     
     @lru_cache(maxsize=1)
     def load_estate_static_info(self) -> Dict:
@@ -76,6 +81,49 @@ class DataLoader:
         except json.JSONDecodeError as e:
             print(f"错误: JSON解析失败 {e}")
             return {'gongwu': {'names': []}, 'juwu': {'names': []}}
+    
+    @lru_cache(maxsize=1)
+    def load_price_trend_by_numeric_id(self) -> Dict:
+        """
+        加载尺价趋势数据，并通过名称映射成数字ID为键
+        :return: {numeric_id: {'monthly_price_trend': {...}, ...}}
+        """
+        try:
+            # 加载尺价趋势文件（typeCode为键）
+            with open(self.price_trend_path, 'r', encoding='utf-8') as f:
+                trend_by_typecode = json.load(f)
+            
+            # 加载 estate_info 建立 typeCode -> estateName 映射
+            with open(self.estate_info_path, 'r', encoding='utf-8') as f:
+                estate_info = json.load(f)
+            
+            typecode_to_name = {}
+            for item in estate_info.get('data', []):
+                tc = item.get('typeCode')
+                name = item.get('estateName')
+                if tc and name:
+                    typecode_to_name[tc] = name
+            
+            # 加载 static 建立 name -> numeric_id 映射
+            static = self.load_estate_static_info()
+            name_to_numeric = {val.get('name'): id_ for id_, val in static.items() if val.get('name')}
+            
+            # 建立以 numeric_id 为键的趋势字典
+            result = {}
+            for typecode, trend_data in trend_by_typecode.items():
+                name = typecode_to_name.get(typecode)
+                if name:
+                    numeric_id = name_to_numeric.get(name)
+                    if numeric_id:
+                        result[numeric_id] = trend_data.get('monthly_price_trend', {})
+            
+            return result
+        except FileNotFoundError as e:
+            print(f"警告: 尺价趋势文件未找到: {e}")
+            return {}
+        except json.JSONDecodeError as e:
+            print(f"警告: 尺价趋势数据解析失败: {e}")
+            return {}
     
     def load_estate_transactions(self, estate_id: str) -> List[Dict]:
         """
@@ -279,6 +327,10 @@ class DataLoader:
         # 获取平均尺价
         avg_price_per_sqft = self.get_estate_current_price_per_sqft(estate_id)
         
+        # 获取尺价趋势时序
+        price_trend_data = self.load_price_trend_by_numeric_id()
+        price_trend_timeseries = price_trend_data.get(estate_id, {})
+        
         detail = {
             'id': estate_id,
             'name': estate_data.get('name', ''),
@@ -298,7 +350,8 @@ class DataLoader:
             'middle_school': basic_info.get('middle_school', ''),
             'min_area': area_range.get('min_area'),  # 最小面积
             'max_area': area_range.get('max_area'),   # 最大面积
-            'avg_price_per_sqft': avg_price_per_sqft  # 平均尺价
+            'avg_price_per_sqft': avg_price_per_sqft,  # 平均尺价
+            'price_trend_timeseries': price_trend_timeseries  # 尺价趋势时序
         }
         
         return detail
