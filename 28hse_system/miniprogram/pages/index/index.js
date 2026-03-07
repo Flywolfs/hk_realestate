@@ -852,12 +852,22 @@ Page({
   },
   
   // 处理登录
-  handleLogin() {
+  handleLogin(e) {
     const app = getApp()
+    
+    // 从 button 的 getuserinfo 事件获取用户信息
+    let userInfo = {}
+    if (e.detail && e.detail.userInfo) {
+      userInfo = e.detail.userInfo
+      console.log('获取到用户信息:', userInfo.nickName)
+    } else {
+      console.log('用户未授权获取信息，将进行匿名登录')
+    }
     
     wx.showLoading({ title: '登录中...' })
     
-    app.doLogin().then(res => {
+    // 传入用户信息（可能为空）
+    app.doLogin(userInfo).then(res => {
       wx.hideLoading()
       
       // 记录今天已提示

@@ -201,7 +201,11 @@
         <text class="login-subtext">我们将记录您的访问，以便提供更好的服务</text>
       </view>
       <view class="login-modal-footer">
-        <button class="login-btn" open-type="getUserProfile" bindtap="handleLogin">
+        <button 
+          class="login-btn" 
+          open-type="getUserInfo" 
+          bind:getuserinfo="handleLogin"
+        >
           <text class="login-btn-text">微信一键登录</text>
         </button>
         <text class="guest-btn" bindtap="continueAsGuest">暂不登录，继续浏览</text>

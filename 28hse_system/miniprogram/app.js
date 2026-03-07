@@ -89,9 +89,9 @@ App({
   },
 
   // 执行登录
-  doLogin() {
+  doLogin(userInfo = {}) {
     return new Promise((resolve, reject) => {
-      api.wechatLogin().then(res => {
+      api.wechatLogin(userInfo).then(res => {
         if (res.success) {
           this.globalData.isLoggedIn = true
           this.globalData.userInfo = res.userInfo

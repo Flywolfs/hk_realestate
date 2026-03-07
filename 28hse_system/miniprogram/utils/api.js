@@ -84,58 +84,41 @@ function request(url, method = 'GET', data = {}, requireAuth = false) {
 /**
  * 微信登录
  * 获取code并发送到后端换取Token
+ * @param {Object} userInfo - 可选的用户信息（通过button获取）
  * @returns {Promise} 登录结果
  */
-function wechatLogin() {
+function wechatLogin(userInfo = {}) {
   return new Promise((resolve, reject) => {
     wx.login({
       success: (res) => {
         if (res.code) {
-          // 获取用户信息（可选，需要用户授权）
-          wx.getUserProfile({
-            desc: '用于完善用户资料',
-            success: (userRes) => {
-              // 发送code和用户信息到后端
-              request('/auth/login', 'POST', {
-                code: res.code,
-                userInfo: userRes.userInfo
-              }).then(loginRes => {
-                if (loginRes.success && loginRes.data.token) {
-                  setToken(loginRes.data.token)
-                  resolve({
-                    success: true,
-                    userInfo: userRes.userInfo,
-                    token: loginRes.data.token
-                  })
-                } else {
-                  reject(new Error('登录失败'))
-                }
-              }).catch(reject)
-            },
-            fail: () => {
-              // 用户拒绝授权，仍然可以登录，只是没有用户信息
-              request('/auth/login', 'POST', {
-                code: res.code,
-                userInfo: {}
-              }).then(loginRes => {
-                if (loginRes.success && loginRes.data.token) {
-                  setToken(loginRes.data.token)
-                  resolve({
-                    success: true,
-                    userInfo: null,
-                    token: loginRes.data.token
-                  })
-                } else {
-                  reject(new Error('登录失败'))
-                }
-              }).catch(reject)
+          console.log('获取到 code:', res.code.substring(0, 10) + '...')
+          
+          // 直接发送code和用户信息到后端
+          // 用户信息可能为空（如果用户未授权）
+          request('/auth/login', 'POST', {
+            code: res.code,
+            userInfo: userInfo
+          }).then(loginRes => {
+            if (loginRes.success && loginRes.data.token) {
+              setToken(loginRes.data.token)
+              resolve({
+                success: true,
+                userInfo: userInfo,
+                token: loginRes.data.token
+              })
+            } else {
+              reject(new Error(loginRes.error || '登录失败'))
             }
-          })
+          }).catch(reject)
         } else {
-          reject(new Error('获取code失败'))
+          reject(new Error('获取code失败: ' + (res.errMsg || '未知错误')))
         }
       },
-      fail: reject
+      fail: (err) => {
+        console.error('wx.login 失败:', err)
+        reject(err)
+      }
     })
   })
 }
