@@ -142,7 +142,7 @@ Page({
 
   // 加载小区数据
   async loadEstates() {
-    wx.showLoading({ title: '加载中...' })
+    wx.showLoading({ title: '加载中... 0%' })
     try {
       // 先尝试从缓存读取（缓存的已是过滤+转换后的数据）
       const cachedEstates = getCache('all_estates_processed')
@@ -157,25 +157,29 @@ Page({
         wx.hideLoading()
         return
       }
-
-      // 从API加载原始数据
-      const res = await api.getAllEstates()
+  
+      // 分页循环加载全量数据
+      const res = await api.getAllEstates((loaded, total) => {
+        const pct = Math.round(loaded / total * 100)
+        wx.showLoading({ title: `加载中... ${pct}%` })
+      })
+  
       if (res.success) {
         const rawData = res.data
-
+  
         // 1. 过滤没有租售比数据的屋苑（灰色点）
         const filteredEstates = rawData.filter(
           estate => estate.rent_ratio !== null && estate.rent_ratio !== undefined
         )
         console.log(`总屋苑: ${rawData.length}, 有租售比数据: ${filteredEstates.length}`)
-
+  
         // 2. WGS-84 → GCJ-02 坐标转换
         const processedEstates = batchTransformEstates(filteredEstates)
         console.log('坐标转换完成，示例:', processedEstates[0]?.name, processedEstates[0]?.coordinates)
-
+  
         // 缓存处理后的数据，避免重复遍历
         setCache('all_estates_processed', processedEstates)
-
+  
         this.setData({ 
           allEstates: processedEstates,
           filteredEstates: processedEstates,

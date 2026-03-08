@@ -23,11 +23,25 @@ api.interceptors.response.use(
 )
 
 /**
- * 获取所有小区列表
+ * 获取所有小区列表（分页循环加载全量数据）
+ * 自动分页请求并合并，返回格式与原接口完全兼容
  * @returns {Promise} 小区列表数据
  */
 export async function getAllEstates() {
-  return api.get('/estates')
+  const LIMIT = 2000
+  let allData = []
+  let page = 1
+  let totalPages = 1
+
+  while (page <= totalPages) {
+    const res = await api.get('/estates', { params: { page, limit: LIMIT } })
+    if (!res.success) throw new Error(res.error || '分页请求失败')
+    allData = allData.concat(res.data)
+    totalPages = res.total_pages
+    page++
+  }
+
+  return { success: true, count: allData.length, data: allData }
 }
 
 /**

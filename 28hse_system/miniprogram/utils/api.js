@@ -155,11 +155,34 @@ function logout() {
 }
 
 /**
- * 获取所有小区列表
- * @returns {Promise} 小区列表数据
+ * 获取所有小区列表（分页循环加载全量数据）
+ * 自动分页请求，合并后返回全部数据，与原 getAllEstates 接口完全兼容
+ * @param {function} [onProgress] - 可选，进度回调 onProgress(loaded, total)
+ * @returns {Promise} 小区列表数据（格式同 getAllEstates）
  */
-function getAllEstates() {
-  return request('/estates')
+function getAllEstates(onProgress) {
+  const LIMIT = 2000
+  let allData = []
+  let total = null
+
+  function fetchPage(page) {
+    return request(`/estates?page=${page}&limit=${LIMIT}`).then(res => {
+      if (!res.success) throw new Error(res.error || '分页请求失败')
+      if (total === null) total = res.count
+      allData = allData.concat(res.data)
+      if (onProgress) onProgress(allData.length, total)
+      // 若还有下一页，继续请求
+      if (page < res.total_pages) {
+        return fetchPage(page + 1)
+      }
+    })
+  }
+
+  return fetchPage(1).then(() => ({
+    success: true,
+    count: allData.length,
+    data: allData
+  }))
 }
 
 /**

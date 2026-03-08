@@ -143,14 +143,45 @@ def get_all_estates():
     """
     获取所有有坐标的小区列表
     返回基本信息用于地图标记
+    查询参数:
+      - page: 页码（从1开始，不传则返回全部）
+      - limit: 每页条数（默认200，最大500）
     """
     try:
         estates = data_loader.get_integrated_estates()
-        return jsonify({
-            'success': True,
-            'count': len(estates),
-            'data': estates
-        })
+        total = len(estates)
+
+        # 分页参数
+        page_str = request.args.get('page')
+        limit_str = request.args.get('limit', '200')
+
+        if page_str is not None:
+            try:
+                page = max(1, int(page_str))
+                limit = min(2000, max(1, int(limit_str)))
+            except ValueError:
+                return jsonify({'success': False, 'error': 'page/limit 参数必须为整数'}), 400
+
+            start = (page - 1) * limit
+            end = start + limit
+            page_data = estates[start:end]
+            total_pages = (total + limit - 1) // limit
+
+            return jsonify({
+                'success': True,
+                'count': total,
+                'page': page,
+                'limit': limit,
+                'total_pages': total_pages,
+                'data': page_data
+            })
+        else:
+            # 未传 page 时返回全部（兼容旧调用方式）
+            return jsonify({
+                'success': True,
+                'count': total,
+                'data': estates
+            })
     except Exception as e:
         logger.error(f"Error in get_all_estates: {str(e)}", exc_info=True)
         return jsonify({

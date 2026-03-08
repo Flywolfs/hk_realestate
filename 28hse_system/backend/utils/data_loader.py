@@ -20,18 +20,24 @@ class DataLoader:
         self.rent_ratio_path = '/home/zhangchi/Documents/28hse/centanet_system/crawler/average_rent_sale_ratio.json'
         # self.estate_static_path = '/home/zhangchi/Documents/28hse/28hse_system/estate_static_info_convert.json'
         # self.rent_ratio_path = '/home/zhangchi/Documents/28hse/28hse_system/average_rent_sale_ratio.json'
+        # self.estate_static_path = 'estate_info_20260221_convert.json'
+        # self.rent_ratio_path = 'average_rent_sale_ratio.json'
         self.housing_types_path = os.path.join(base_path, 'housing_types.json')
         
         # 尺价趋势文件路径（typeCode格式 ID）
         self.price_trend_path = '/home/zhangchi/Documents/28hse/centanet_system/crawler/monthly_price_trend_20260306.json'
         # estate_info源文件，用于typeCode->name映射
         self.estate_info_path = '/home/zhangchi/Documents/28hse/centanet_system/crawler/estate_info_20260221.json'
+
+        # self.price_trend_path = 'monthly_price_trend_20260306.json'
+        # self.estate_info_path = 'estate_info_20260221.json'
         
         # 设置交易数据路径（默认值）
         if transaction_buy_path:
             self.transaction_buy_path = transaction_buy_path
         else:
             self.transaction_buy_path = "/home/zhangchi/Documents/28hse/centanet_system/crawler/transaction_record_20260306_trans/buy"
+            # self.transaction_buy_path = "crawler/transaction_record_20260306_trans/buy"
     
     @lru_cache(maxsize=1)
     def load_estate_static_info(self) -> Dict:
@@ -275,8 +281,8 @@ class DataLoader:
                 'address': estate_data.get('address', ''),
                 'coordinates': coordinates,
                 'rent_ratio': latest_ratio,  # 最新月份租售比（用于颜色映射）
-                'overall_ratio_timeseries': overall_ratio_timeseries,  # 完整时序数据
-                'room_type_ratio': room_type_ratio,
+                # 注意：overall_ratio_timeseries 和 room_type_ratio 已移至详情接口
+                # 以减少列表接口的响应体积（微信云托管限制1MB）
                 'housing_type': housing_type,
                 'establish_year': establish_year,
                 'primary_school': primary_school,
