@@ -17,7 +17,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.data_loader import DataLoader
 from auth import (
     get_wechat_session, generate_token, verify_token, 
-    login_required, get_user_stats, log_user_access
+    login_required, get_user_stats, log_user_access,
+    get_user_from_request
 )
 
 app = Flask(__name__, static_folder='../frontend/dist', static_url_path='')
@@ -361,37 +362,32 @@ def wechat_login():
 @rate_limit
 def verify_user_token():
     """
-    验证Token是否有效
-    用于小程序启动时检查登录状态
+    验证用户身份是否有效
+    支持两种方式：
+    1. 云调用模式：从 header 自动获取用户信息
+    2. JWT 模式：验证 Token 有效性
     """
-    auth_header = request.headers.get('Authorization', '')
+    # 优先检查云调用模式
+    user = get_user_from_request()
     
-    if not auth_header.startswith('Bearer '):
-        return jsonify({
-            'success': False,
-            'valid': False,
-            'error': '缺少Token'
-        }), 401
-    
-    token = auth_header[7:]
-    payload = verify_token(token)
-    
-    if payload:
+    if user:
         return jsonify({
             'success': True,
             'valid': True,
             'data': {
-                'openid': payload.get('openid'),
-                'nickname': payload.get('nickname', ''),
-                'avatar': payload.get('avatar', '')
+                'openid': user.get('openid'),
+                'nickname': user.get('nickname', ''),
+                'avatar': user.get('avatar', ''),
+                'source': user.get('source', 'unknown')
             }
         })
-    else:
-        return jsonify({
-            'success': False,
-            'valid': False,
-            'error': 'Token已过期或无效'
-        }), 401
+    
+    # 未获取到用户信息
+    return jsonify({
+        'success': False,
+        'valid': False,
+        'error': '未登录或登录已过期'
+    }), 401
 
 
 @app.route('/api/user/stats', methods=['GET'])
@@ -409,6 +405,35 @@ def get_user_access_stats():
         })
     except Exception as e:
         logger.error(f"Error in get_user_access_stats: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@app.route('/api/admin/refresh-data', methods=['POST'])
+@rate_limit
+def refresh_data():
+    """
+    刷新数据缓存（仅管理员使用）
+    数据更新后调用此接口清除缓存，重新加载最新数据
+    """
+    try:
+        # 清除数据加载器的缓存
+        from utils.data_loader import DataLoader
+        
+        # 清除所有 LRU 缓存
+        data_loader.load_estate_static_info.cache_clear()
+        data_loader.load_rent_ratio_data.cache_clear()
+        data_loader.load_housing_types.cache_clear()
+        
+        logger.info("数据缓存已刷新")
+        return jsonify({
+            'success': True,
+            'message': '数据缓存已刷新，新数据将在下次请求时加载'
+        })
+    except Exception as e:
+        logger.error(f"Error refreshing data: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
             'error': str(e)

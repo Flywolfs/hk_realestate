@@ -21,5 +21,14 @@
   ],
   "sitemapLocation": "sitemap.json",
   "style": "v2",
-  "lazyCodeLoading": "requiredComponents"
+  "lazyCodeLoading": "requiredComponents",
+  "requiredBackgroundModes": [],
+  "cloud": true,
+  "miniprogramRoot": ".",
+  "compileOptions": {
+    "minified": true,
+    "minifyJS": true,
+    "minifyWXSS": true
+  },
+  "libVersion": "2.23.0"
 }

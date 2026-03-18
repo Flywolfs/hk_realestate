@@ -102,38 +102,77 @@ def verify_token(token):
         return None  # Token无效
 
 
+def get_user_from_request():
+    """
+    从请求中获取用户身份信息
+    支持两种方式：
+    1. 云调用模式：从 header 中获取 X-WX-FROM-OPENID
+    2. JWT 模式：从 Authorization header 中解析 token
+    
+    Returns:
+        dict: 包含用户信息的字典，或 None
+    """
+    # 优先检查云调用 header（云托管自动注入）
+    openid = request.headers.get('X-WX-FROM-OPENID')
+    if openid:
+        unionid = request.headers.get('X-WX-FROM-UNIONID', '')
+        appid = request.headers.get('X-WX-FROM-APPID', '')
+        ip = request.headers.get('X-WX-FROM-IP', '')
+        
+        # 打印云调用用户信息日志
+        print(f"[CloudCall] 用户请求 - openid: {openid[:16]}... unionid: {unionid[:16] if unionid else 'None'} appid: {appid} ip: {ip}")
+        
+        return {
+            'openid': openid,
+            'unionid': unionid,
+            'appid': appid,
+            'ip': ip,
+            'source': 'cloud_call'
+        }
+    
+    # 检查 JWT Token（兼容原有域名方案）
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        token = auth_header[7:]
+        payload = verify_token(token)
+        if payload:
+            user_openid = payload.get('openid')
+            print(f"[JWT] 用户请求 - openid: {user_openid[:16] if user_openid else 'None'}... nickname: {payload.get('nickname', '')}")
+            return {
+                'openid': user_openid,
+                'nickname': payload.get('nickname', ''),
+                'avatar': payload.get('avatar', ''),
+                'source': 'jwt_token'
+            }
+    
+    # 打印未识别用户请求日志
+    print(f"[Anonymous] 匿名请求 - path: {request.path} ip: {request.headers.get('X-Forwarded-For', request.remote_addr)}")
+    
+    return None
+
+
 def login_required(f):
     """
     登录验证装饰器
     用于保护需要登录才能访问的API
+    支持云调用模式和 JWT Token 模式
     """
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        # 从请求头获取Token
-        auth_header = request.headers.get('Authorization', '')
+        user = get_user_from_request()
         
-        if not auth_header.startswith('Bearer '):
+        if not user:
             return jsonify({
                 'success': False,
                 'error': '请先登录',
                 'code': 401
             }), 401
         
-        token = auth_header[7:]  # 去掉 "Bearer " 前缀
-        payload = verify_token(token)
-        
-        if not payload:
-            return jsonify({
-                'success': False,
-                'error': '登录已过期，请重新登录',
-                'code': 401
-            }), 401
-        
         # 将用户信息存入请求上下文
-        request.current_user = payload
+        request.current_user = user
         
         # 记录用户访问
-        log_user_access(payload.get('openid'), request.path)
+        log_user_access(user.get('openid'), request.path)
         
         return f(*args, **kwargs)
     
@@ -148,11 +187,14 @@ def log_user_access(openid, path):
         openid: 用户openid
         path: 访问的API路径
     """
+    # 优先获取云调用传递的 IP（X-WX-FROM-IP），否则使用 X-Forwarded-For 或 remote_addr
+    ip = request.headers.get('X-WX-FROM-IP') or request.headers.get('X-Forwarded-For', request.remote_addr)
+    
     access_record = {
         'openid': openid,
         'path': path,
         'timestamp': datetime.now().isoformat(),
-        'ip': request.headers.get('X-Forwarded-For', request.remote_addr)
+        'ip': ip
     }
     user_access_log.append(access_record)
     

@@ -1,11 +1,12 @@
 /**
- * API接口封装 - 小程序版本
+ * API接口封装 - HTTP 域名方案（备用）
  * 提供与Flask后端交互的接口
+ * 当云调用服务不可用时，可通过购买域名并配置服务器域名继续使用
  */
 
 // 获取API基础URL
 const app = getApp()
-const BASE_URL = 'https://xxx'  // 开发环境,上线前需替换为HTTPS域名
+const BASE_URL = 'https://hkrealestate-230834-6-1409178104.sh.run.tcloudbase.com/api'  // 开发环境,上线前需替换为HTTPS域名
 
 // Token存储键名
 const TOKEN_KEY = 'auth_token'
