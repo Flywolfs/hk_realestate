@@ -22,12 +22,16 @@ function initCloud() {
   
   return new Promise((resolve, reject) => {
     try {
-      // 初始化云开发环境
-      wx.cloud.init()
+      // 初始化云开发环境，指定环境ID
+      // 注意：体验版/正式版需要明确指定环境ID，否则可能使用默认环境
+      wx.cloud.init({
+        env: CLOUD_CONFIG.env,
+        traceUser: true  // 记录用户访问日志，便于调试
+      })
       
       // 创建云调用实例
       cloudInstance = wx.cloud
-      console.log('云调用初始化成功')
+      console.log('云调用初始化成功，环境ID:', CLOUD_CONFIG.env)
       resolve(cloudInstance)
     } catch (err) {
       console.error('云调用初始化失败:', err)
@@ -66,19 +70,30 @@ function request(path, method = 'GET', data = {}, requireAuth = false) {
       data: data
     }
 
+    // 打印请求日志（便于调试）
+    console.log(`[CloudRequest] ${method} ${path}`, { env: CLOUD_CONFIG.env, service: CLOUD_CONFIG.service })
+    
     cloudInstance.callContainer(options)
       .then(res => {
+        console.log(`[CloudResponse] ${method} ${path} - Status: ${res.statusCode}`)
         if (res.statusCode === 200) {
           resolve(res.data)
         } else {
           const error = new Error(`请求失败: ${res.statusCode}`)
           error.statusCode = res.statusCode
           error.data = res.data
+          console.error(`[CloudError] ${method} ${path} - Status: ${res.statusCode}`, res.data)
           reject(error)
         }
       })
       .catch(err => {
-        console.error('云调用请求失败:', path, err)
+        console.error('[CloudError] 云调用请求失败:', path, err)
+        // 在手机上显示错误提示（调试用）
+        wx.showToast({
+          title: `请求失败: ${err.message || err}`,
+          icon: 'none',
+          duration: 3000
+        })
         reject(err)
       })
   })

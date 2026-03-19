@@ -35,6 +35,29 @@ App({
     console.log('小程序启动', options)
     console.log(`当前模式: ${USE_CLOUD_MODE ? '云调用模式' : 'HTTP域名模式'}`)
     
+    // 检查基础库版本（云调用需要 2.23.0+）
+    const systemInfo = wx.getSystemInfoSync()
+    const sdkVersion = systemInfo.SDKVersion
+    console.log(`基础库版本: ${sdkVersion}`)
+    
+    if (USE_CLOUD_MODE) {
+      // 解析版本号进行比较
+      const versionParts = sdkVersion.split('.').map(Number)
+      const minVersion = [2, 23, 0]
+      const isVersionValid = versionParts[0] > minVersion[0] || 
+        (versionParts[0] === minVersion[0] && versionParts[1] > minVersion[1]) ||
+        (versionParts[0] === minVersion[0] && versionParts[1] === minVersion[1] && versionParts[2] >= minVersion[2])
+      
+      if (!isVersionValid) {
+        wx.showModal({
+          title: '版本过低',
+          content: `当前基础库版本 ${sdkVersion} 过低，请升级微信到最新版本`,
+          showCancel: false
+        })
+        return
+      }
+    }
+    
     // 检查小程序版本更新
     this.checkUpdate()
     
