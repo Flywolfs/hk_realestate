@@ -412,28 +412,30 @@ def get_user_access_stats():
 
 
 @app.route('/api/admin/refresh-data', methods=['POST'])
-@rate_limit
 def refresh_data():
     """
-    刷新数据缓存（仅管理员使用）
-    数据更新后调用此接口清除缓存，重新加载最新数据
+    热重载数据（仅管理员使用）
+    - cos 模式：重新从 COS 下载所有数据文件，再清空缓存
+    - local 模式：直接清空缓存，重新读取本地文件
+    需在请求头携带 X-Admin-Token，值与环境变量 ADMIN_RELOAD_TOKEN 一致
     """
+    # Token 鉴权
+    expected_token = os.environ.get('ADMIN_RELOAD_TOKEN', '')
+    provided_token = request.headers.get('X-Admin-Token', '')
+    if not expected_token or provided_token != expected_token:
+        logger.warning(f"Unauthorized reload attempt from {request.remote_addr}")
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+
     try:
-        # 清除数据加载器的缓存
-        from utils.data_loader import DataLoader
-        
-        # 清除所有 LRU 缓存
-        data_loader.load_estate_static_info.cache_clear()
-        data_loader.load_rent_ratio_data.cache_clear()
-        data_loader.load_housing_types.cache_clear()
-        
-        logger.info("数据缓存已刷新")
+        # 调用 reload()：cos 模式先重新下载文件，再清空所有 lru_cache
+        data_loader.reload()
+        logger.info("数据热重载完成")
         return jsonify({
             'success': True,
-            'message': '数据缓存已刷新，新数据将在下次请求时加载'
+            'message': '数据已重新加载，新数据即时生效'
         })
     except Exception as e:
-        logger.error(f"Error refreshing data: {str(e)}", exc_info=True)
+        logger.error(f"Error reloading data: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
             'error': str(e)
