@@ -1,43 +1,102 @@
 """
 数据加载和整合工具
 整合 estate_static_info.json 和 average_rent_sale_ratio.json
+
+数据源模式由 data_config.py 统一管理：
+  - local 模式：直接读取 data_config.LOCAL_PATHS 中配置的本地路径（默认）
+  - cos 模式  ：启动时从微信云托管对象存储下载文件到本地缓存目录后读取
 """
 import json
 import os
 from functools import lru_cache
 from typing import Dict, List, Optional
 
+from utils import data_config
+
+
+def _resolve_paths(base_path: str) -> dict:
+    """
+    根据 DATA_MODE 解析各数据文件的实际本地路径。
+    cos 模式下，先将文件从 COS 下载到本地缓存目录，再返回缓存路径。
+    """
+    if data_config.DATA_MODE == 'cos':
+        return _download_from_cos()
+    else:
+        # local 模式：直接使用配置的本地路径
+        # housing_types.json 特殊处理：支持 base_path 动态计算
+        paths = dict(data_config.LOCAL_PATHS)
+        if not os.path.isabs(paths.get('housing_types', '')):
+            paths['housing_types'] = os.path.join(base_path, 'housing_types.json')
+        return paths
+
+
+def _download_from_cos() -> dict:
+    """
+    从微信云托管对象存储（COS）批量下载数据文件到本地缓存目录。
+    返回各文件的本地缓存路径字典。
+    """
+    try:
+        from qcloud_cos import CosConfig, CosS3Client
+    except ImportError:
+        raise ImportError(
+            "COS 模式需要安装 cos-python-sdk-v5，请执行：pip install cos-python-sdk-v5"
+        )
+
+    cache_dir = data_config.COS_LOCAL_CACHE_DIR
+    os.makedirs(cache_dir, exist_ok=True)
+
+    config = CosConfig(
+        Region=data_config.COS_REGION,
+        SecretId=data_config.COS_SECRET_ID,
+        SecretKey=data_config.COS_SECRET_KEY,
+    )
+    client = CosS3Client(config)
+    bucket = data_config.COS_BUCKET
+
+    local_paths = {}
+    for key_name, cos_key in data_config.COS_KEYS.items():
+        local_file = os.path.join(cache_dir, os.path.basename(cos_key))
+        try:
+            client.download_file(
+                Bucket=bucket,
+                Key=cos_key,
+                DestFilePath=local_file,
+            )
+            print(f"[COS] 下载成功: {cos_key} -> {local_file}")
+        except Exception as e:
+            print(f"[COS] 下载失败: {cos_key}: {e}")
+            # 若本地缓存已有旧文件则继续使用，否则保留空路径（加载时会报 FileNotFoundError）
+        local_paths[key_name] = local_file
+
+    # transaction_buy_dir 在 COS 模式下不使用（已由 dynamic_estate_data 替代）
+    local_paths['transaction_buy_dir'] = os.path.join(cache_dir, 'buy')
+    return local_paths
+
 
 class DataLoader:
     def __init__(self, base_path: str, transaction_buy_path: str = None):
         """
         初始化数据加载器
-        :param base_path: 项目根目录路径
-        :param transaction_buy_path: 交易数据路径（buy目录）
+        :param base_path: 项目根目录路径（用于 local 模式下 housing_types.json 的相对路径计算）
+        :param transaction_buy_path: 交易数据路径（buy目录，本地回退用）
         """
         self.base_path = base_path
-        self.estate_static_path = '/home/zhangchi/Documents/28hse/centanet_system/crawler/estate_info_20260221_convert.json'
-        self.rent_ratio_path = '/home/zhangchi/Documents/28hse/centanet_system/crawler/average_rent_sale_ratio.json'
-        # self.estate_static_path = '/home/zhangchi/Documents/28hse/28hse_system/estate_static_info_convert.json'
-        # self.rent_ratio_path = '/home/zhangchi/Documents/28hse/28hse_system/average_rent_sale_ratio.json'
-        # self.estate_static_path = 'estate_info_20260221_convert.json'
-        # self.rent_ratio_path = 'average_rent_sale_ratio.json'
-        self.housing_types_path = os.path.join(base_path, 'housing_types.json')
-        
-        # 尺价趋势文件路径（typeCode格式 ID）
-        self.price_trend_path = '/home/zhangchi/Documents/28hse/centanet_system/crawler/monthly_price_trend_20260306.json'
-        # estate_info源文件，用于typeCode->name映射
-        self.estate_info_path = '/home/zhangchi/Documents/28hse/centanet_system/crawler/estate_info_20260221.json'
 
-        # self.price_trend_path = 'monthly_price_trend_20260306.json'
-        # self.estate_info_path = 'estate_info_20260221.json'
-        
-        # 设置交易数据路径（默认值）
+        # 解析数据文件路径（local 直接使用配置路径，cos 先下载再返回缓存路径）
+        paths = _resolve_paths(base_path)
+
+        self.estate_static_path       = paths['estate_static']
+        self.rent_ratio_path          = paths['rent_ratio']
+        self.housing_types_path       = paths['housing_types']
+        self.price_trend_path         = paths['price_trend']
+        self.estate_info_path         = paths['estate_info']
+        self.dynamic_estate_data_path = paths['dynamic_estate_data']
+
+        # 设置交易数据路径（仅本地开发回退用，cos 模式下通常不会执行到）
         if transaction_buy_path:
             self.transaction_buy_path = transaction_buy_path
         else:
-            self.transaction_buy_path = "/home/zhangchi/Documents/28hse/centanet_system/crawler/transaction_record_20260306_trans/buy"
-            # self.transaction_buy_path = "crawler/transaction_record_20260306_trans/buy"
+            self.transaction_buy_path = paths.get('transaction_buy_dir', '')
     
     @lru_cache(maxsize=1)
     def load_estate_static_info(self) -> Dict:
@@ -131,6 +190,23 @@ class DataLoader:
             print(f"警告: 尺价趋势数据解析失败: {e}")
             return {}
     
+    @lru_cache(maxsize=1)
+    def load_dynamic_estate_data(self) -> Dict:
+        """
+        加载预计算的动态小区数据（面积范围 + 当前尺价）
+        由 preprocess_dynamic_estate_data.py 预先生成
+        使用LRU缓存提高性能
+        """
+        try:
+            with open(self.dynamic_estate_data_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            print(f"警告: 未找到预计算数据文件 {self.dynamic_estate_data_path}，将回退到实时读取交易记录")
+            return {}
+        except json.JSONDecodeError as e:
+            print(f"警告: 预计算数据解析失败 {e}，将回退到实时读取交易记录")
+            return {}
+
     def load_estate_transactions(self, estate_id: str) -> List[Dict]:
         """
         加载某个小区的交易记录
@@ -159,25 +235,31 @@ class DataLoader:
     def get_estate_area_range(self, estate_id: str) -> Dict:
         """
         获取小区的面积范围
+        优先从预计算的 dynamic_estate_data.json 读取，未找到时回退到实时读取交易记录
         :param estate_id: 小区ID
         :return: {'min_area': float, 'max_area': float} 或 {}
         """
+        # 优先读预计算数据
+        dynamic_data = self.load_dynamic_estate_data()
+        if estate_id in dynamic_data:
+            entry = dynamic_data[estate_id]
+            if 'min_area' in entry and 'max_area' in entry:
+                return {'min_area': entry['min_area'], 'max_area': entry['max_area']}
+
+        # 回退：实时读取交易记录文件
         transactions = self.load_estate_transactions(estate_id)
-        
         if not transactions:
             return {}
-        
-        # 提取所有有效面积
+
         areas = []
         for trans in transactions:
-            # 尝试saleable_area或area字段
             area = trans.get('saleable_area') or trans.get('area')
             if area and isinstance(area, (int, float)) and area > 0:
                 areas.append(area)
-        
+
         if not areas:
             return {}
-        
+
         return {
             'min_area': min(areas),
             'max_area': max(areas)
@@ -186,33 +268,33 @@ class DataLoader:
     def get_estate_current_price_per_sqft(self, estate_id: str) -> Optional[float]:
         """
         获取小区的当前尺价（最近5条记录的平均值）
+        优先从预计算的 dynamic_estate_data.json 读取，未找到时回退到实时读取交易记录
         :param estate_id: 小区ID
         :return: 平均尺价或None
         """
+        # 优先读预计算数据
+        dynamic_data = self.load_dynamic_estate_data()
+        if estate_id in dynamic_data:
+            price = dynamic_data[estate_id].get('current_price_per_sqft')
+            if price is not None:
+                return price
+
+        # 回退：实时读取交易记录文件
         transactions = self.load_estate_transactions(estate_id)
-        
         if not transactions:
             return None
-        
-        # 按交易日期排序（使用date字段）
-        # 如果没有日期字段，则取最后5条
-        sorted_trans = transactions
-        # if transactions and 'date' in transactions[0]:
-        #     sorted_trans = sorted(transactions, key=lambda x: x.get('date', ''), reverse=True)
-        
+
         # 取最新5条
-        recent_trans = sorted_trans[:5]
-        
-        # 提取price_per_sqft
+        recent_trans = transactions[:5]
         prices = []
         for trans in recent_trans:
             price = trans.get('price_per_sqft')
             if price and isinstance(price, (int, float)) and price > 0:
                 prices.append(price)
-        
+
         if not prices:
             return None
-        
+
         return sum(prices) / len(prices)
     
     def get_integrated_estates(self) -> List[Dict]:
@@ -417,6 +499,30 @@ class DataLoader:
             'data': overall_ratios
         }
     
+    def reload(self):
+        """
+        热重载数据：
+        - cos 模式：重新从 COS 下载所有数据文件到本地缓存，并刷新文件路径
+        - local 模式：直接清空 lru_cache，重新读取本地文件
+        供热更新接口调用（上传新数据文件后调用此方法即可生效，无需重启容器）。
+        """
+        if data_config.DATA_MODE == 'cos':
+            # 重新下载文件并更新路径
+            paths = _download_from_cos()
+            self.estate_static_path       = paths['estate_static']
+            self.rent_ratio_path          = paths['rent_ratio']
+            self.housing_types_path       = paths['housing_types']
+            self.price_trend_path         = paths['price_trend']
+            self.estate_info_path         = paths['estate_info']
+            self.dynamic_estate_data_path = paths['dynamic_estate_data']
+
+        # 清空所有 lru_cache，触发下次访问时重新加载
+        self.load_estate_static_info.cache_clear()
+        self.load_rent_ratio_data.cache_clear()
+        self.load_housing_types.cache_clear()
+        self.load_price_trend_by_numeric_id.cache_clear()
+        self.load_dynamic_estate_data.cache_clear()
+
     def search_estates_by_name(self, keyword: str) -> List[Dict]:
         """
         按小区名称模糊搜索
