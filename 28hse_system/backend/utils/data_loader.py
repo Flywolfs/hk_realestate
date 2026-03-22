@@ -89,7 +89,6 @@ class DataLoader:
         self.rent_ratio_path          = paths['rent_ratio']
         self.housing_types_path       = paths['housing_types']
         self.price_trend_path         = paths['price_trend']
-        self.estate_info_path         = paths['estate_info']
         self.dynamic_estate_data_path = paths['dynamic_estate_data']
 
         # 设置交易数据路径（仅本地开发回退用，cos 模式下通常不会执行到）
@@ -150,38 +149,24 @@ class DataLoader:
     @lru_cache(maxsize=1)
     def load_price_trend_by_numeric_id(self) -> Dict:
         """
-        加载尺价趋势数据，并通过名称映射成数字ID为键
-        :return: {numeric_id: {'monthly_price_trend': {...}, ...}}
+        加载尺价趋势数据，以 typeCode 为键转换成以 typeCode 本身为键（即 numeric_id）的字典。
+        estate_static 文件的 key 即为 typeCode，value 含 name 字段，
+        无需额外的 estate_info 文件建立映射。
+        :return: {typeCode: monthly_price_trend_dict}
         """
         try:
-            # 加载尺价趋势文件（typeCode为键）
+            # 加载尺价趋势文件（typeCode 为键）
             with open(self.price_trend_path, 'r', encoding='utf-8') as f:
                 trend_by_typecode = json.load(f)
-            
-            # 加载 estate_info 建立 typeCode -> estateName 映射
-            with open(self.estate_info_path, 'r', encoding='utf-8') as f:
-                estate_info = json.load(f)
-            
-            typecode_to_name = {}
-            for item in estate_info.get('data', []):
-                tc = item.get('typeCode')
-                name = item.get('estateName')
-                if tc and name:
-                    typecode_to_name[tc] = name
-            
-            # 加载 static 建立 name -> numeric_id 映射
+
+            # estate_static 的 key 就是 typeCode，直接用于过滤（只保留存在于 static 中的条目）
             static = self.load_estate_static_info()
-            name_to_numeric = {val.get('name'): id_ for id_, val in static.items() if val.get('name')}
-            
-            # 建立以 numeric_id 为键的趋势字典
+
             result = {}
             for typecode, trend_data in trend_by_typecode.items():
-                name = typecode_to_name.get(typecode)
-                if name:
-                    numeric_id = name_to_numeric.get(name)
-                    if numeric_id:
-                        result[numeric_id] = trend_data.get('monthly_price_trend', {})
-            
+                if typecode in static:
+                    result[typecode] = trend_data.get('monthly_price_trend', {})
+
             return result
         except FileNotFoundError as e:
             print(f"警告: 尺价趋势文件未找到: {e}")
@@ -513,7 +498,6 @@ class DataLoader:
             self.rent_ratio_path          = paths['rent_ratio']
             self.housing_types_path       = paths['housing_types']
             self.price_trend_path         = paths['price_trend']
-            self.estate_info_path         = paths['estate_info']
             self.dynamic_estate_data_path = paths['dynamic_estate_data']
 
         # 清空所有 lru_cache，触发下次访问时重新加载

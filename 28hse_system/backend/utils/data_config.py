@@ -42,8 +42,6 @@ LOCAL_PATHS = {
     'housing_types':       f'{_LOCAL_28HSE_DIR}/housing_types.json',
     # 月度尺价趋势（以 typeCode 为键）
     'price_trend':         f'{_LOCAL_CENTANET_DIR}/monthly_price_trend_20260314.json',
-    # 屋苑 typeCode -> estateName 映射源文件
-    'estate_info':         f'{_LOCAL_CENTANET_DIR}/estate_info_20260221.json',
     # 预计算动态数据（面积范围 + 当前尺价），由 preprocess_dynamic_estate_data.py 生成
     'dynamic_estate_data': f'{_LOCAL_CENTANET_DIR}/dynamic_estate_data.json',
     # 交易记录 buy 目录（本地回退用）
@@ -69,10 +67,9 @@ COS_LOCAL_CACHE_DIR = os.environ.get('COS_LOCAL_CACHE_DIR', '/tmp/data')
 # COS 上各数据文件的对象键（Key）
 # 上传数据文件时请保持与此处一致的路径
 COS_KEYS = {
-    'estate_static':       'data/estate_info_convert.json',
+    'estate_static':       'data/estate_info_20260221_convert.json',
     'rent_ratio':          'data/average_rent_sale_ratio.json',
     'housing_types':       'data/housing_types.json',
     'price_trend':         'data/monthly_price_trend.json',
-    'estate_info':         'data/estate_info.json',
     'dynamic_estate_data': 'data/dynamic_estate_data.json',
 }
