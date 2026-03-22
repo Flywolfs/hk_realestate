@@ -108,6 +108,16 @@ Page({
     }
   },
 
+  // 分享到朋友圈
+  onShareTimeline() {
+    const { estate } = this.data
+    return {
+      title: `${estate.name} - 租售比${estate.rent_ratio}%`,
+      query: `id=${estate.id}`,
+      imageUrl: ''  // 可以设置屋苑图片，建议 5:4 比例
+    }
+  },
+
   // 绘制租售比趋势图
   drawTrendChart() {
     const { estate, minRatio, maxRatio } = this.data

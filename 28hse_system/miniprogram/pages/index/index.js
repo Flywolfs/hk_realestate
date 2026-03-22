@@ -536,6 +536,15 @@ Page({
     }
   },
 
+  // 分享到朋友圈
+  onShareTimeline() {
+    return {
+      title: '香港小区租售比地图',
+      query: '',
+      imageUrl: ''  // 可以设置分享图片，建议 5:4 比例
+    }
+  },
+
   // 切换房屋类型筛选
   toggleHousingType(type) {
     const { housingTypeFilter, allEstates } = this.data
