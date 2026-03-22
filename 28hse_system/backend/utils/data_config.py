@@ -27,26 +27,41 @@ except ImportError:
 DATA_MODE = os.environ.get('DATA_MODE', 'local')
 
 # ============================================================
-# LOCAL 模式：本地文件绝对路径
-# 本地调试时修改这里即可
+# LOCAL 模式：本地文件路径
+# 优先读取环境变量 DATA_DIR（standalone Docker 部署时设为 /data）
+# 未设置时使用下方硬编码的本地开发路径
 # ============================================================
-_LOCAL_CENTANET_DIR = '/home/zhangchi/Documents/28hse/centanet_system/crawler'
-_LOCAL_28HSE_DIR    = '/home/zhangchi/Documents/28hse/28hse_system'
+_DATA_DIR = os.environ.get('DATA_DIR', '')
 
-LOCAL_PATHS = {
-    # 屋苑静态信息（含坐标、基本资料）
-    'estate_static':       f'{_LOCAL_CENTANET_DIR}/estate_info_20260221_convert.json',
-    # 租售比数据
-    'rent_ratio':          f'{_LOCAL_CENTANET_DIR}/average_rent_sale_ratio.json',
-    # 公屋/居屋类型名单
-    'housing_types':       f'{_LOCAL_28HSE_DIR}/housing_types.json',
-    # 月度尺价趋势（以 typeCode 为键）
-    'price_trend':         f'{_LOCAL_CENTANET_DIR}/monthly_price_trend_20260314.json',
-    # 预计算动态数据（面积范围 + 当前尺价），由 preprocess_dynamic_estate_data.py 生成
-    'dynamic_estate_data': f'{_LOCAL_CENTANET_DIR}/dynamic_estate_data.json',
-    # 交易记录 buy 目录（本地回退用）
-    'transaction_buy_dir': f'{_LOCAL_CENTANET_DIR}/transaction_record_20260314_trans/buy',
-}
+if _DATA_DIR:
+    # standalone Docker 模式：所有数据文件统一挂载到 DATA_DIR 目录
+    LOCAL_PATHS = {
+        'estate_static':       os.path.join(_DATA_DIR, 'estate_info_20260221_convert.json'),
+        'rent_ratio':          os.path.join(_DATA_DIR, 'average_rent_sale_ratio.json'),
+        'housing_types':       os.path.join(_DATA_DIR, 'housing_types.json'),
+        'price_trend':         os.path.join(_DATA_DIR, 'monthly_price_trend.json'),
+        'dynamic_estate_data': os.path.join(_DATA_DIR, 'dynamic_estate_data.json'),
+        'transaction_buy_dir': os.path.join(_DATA_DIR, 'transaction_buy'),
+    }
+else:
+    # 纯本地开发模式：使用硬编码的绝对路径，修改下方两行切换数据目录
+    _LOCAL_CENTANET_DIR = '/home/zhangchi/Documents/28hse/centanet_system/crawler'
+    _LOCAL_28HSE_DIR    = '/home/zhangchi/Documents/28hse/28hse_system'
+
+    LOCAL_PATHS = {
+        # 屋苑静态信息（含坐标、基本资料）
+        'estate_static':       f'{_LOCAL_CENTANET_DIR}/estate_info_20260221_convert.json',
+        # 租售比数据
+        'rent_ratio':          f'{_LOCAL_CENTANET_DIR}/average_rent_sale_ratio.json',
+        # 公屋/居屋类型名单
+        'housing_types':       f'{_LOCAL_28HSE_DIR}/housing_types.json',
+        # 月度尺价趋势（以 typeCode 为键）
+        'price_trend':         f'{_LOCAL_CENTANET_DIR}/monthly_price_trend_20260314.json',
+        # 预计算动态数据（面积范围 + 当前尺价），由 preprocess_dynamic_estate_data.py 生成
+        'dynamic_estate_data': f'{_LOCAL_CENTANET_DIR}/dynamic_estate_data.json',
+        # 交易记录 buy 目录（本地回退用）
+        'transaction_buy_dir': f'{_LOCAL_CENTANET_DIR}/transaction_record_20260314_trans/buy',
+    }
 
 # ============================================================
 # COS 模式：云托管对象存储配置
