@@ -675,3 +675,25 @@
   color: #999;
   padding: 15rpx 0;
 }
+
+/* 截图水印层 */
+.watermark-layer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 9999;
+  overflow: hidden;
+}
+
+.watermark-text {
+  position: absolute;
+  font-size: 28rpx;
+  color: rgba(0, 0, 0, 0.08);
+  font-weight: 500;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
+}

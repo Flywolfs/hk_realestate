@@ -78,7 +78,9 @@ Page({
     hasActiveFilter: false,
     
     // 登录弹窗显示状态
-    showLoginModal: false
+    showLoginModal: false,
+    // 水印列表
+    watermarkList: []
   },
 
   onLoad() {
@@ -86,11 +88,51 @@ Page({
     // 页面加载时初始化
     this.loadRentRatioStats()
     this.loadEstates()
+    this.generateWatermark()
     
     // 检查是否需要显示登录弹窗（延迟2秒显示，避免打扰）
     setTimeout(() => {
       this.checkAndShowLoginModal()
     }, 2000)
+  },
+
+  // 生成水印
+  generateWatermark() {
+    const watermarkText = '港房Data'
+    const rows = 6
+    const cols = 4
+    const watermarkList = []
+    
+    // 获取系统信息计算屏幕尺寸
+    const sysInfo = wx.getSystemInfoSync()
+    const screenWidth = sysInfo.windowWidth
+    const screenHeight = sysInfo.windowHeight
+    
+    // 将像素转换为 rpx (750rpx = screenWidth px)
+    const rpxRatio = 750 / screenWidth
+    
+    const cellWidth = 750 / cols
+    const cellHeight = (screenHeight * rpxRatio) / rows
+    
+    // 固定旋转角度 -30度
+    const fixedRotate = -30
+    
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        // 添加随机偏移，使水印分布更自然，但旋转角度固定
+        const offsetX = Math.random() * 40 - 20
+        const offsetY = Math.random() * 40 - 20
+        
+        watermarkList.push({
+          text: watermarkText,
+          x: col * cellWidth + cellWidth / 2 + offsetX,
+          y: row * cellHeight + cellHeight / 2 + offsetY,
+          rotate: fixedRotate
+        })
+      }
+    }
+    
+    this.setData({ watermarkList })
   },
 
   onShow() {

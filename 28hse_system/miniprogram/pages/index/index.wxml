@@ -1,5 +1,12 @@
 <!-- pages/index/index.wxml - 首页地图 -->
 <view class="container">
+  <!-- 截图水印层 -->
+  <view class="watermark-layer" wx:if="{{!loading}}">
+    <view class="watermark-text" wx:for="{{watermarkList}}" wx:key="index" style="left: {{item.x}}rpx; top: {{item.y}}rpx; transform: rotate({{item.rotate}}deg);">
+      {{item.text}}
+    </view>
+  </view>
+
   <!-- 地图容器 -->
   <map 
     id="estate-map"
