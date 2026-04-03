@@ -45,6 +45,22 @@
       </view>
     </view>
 
+    <!-- 户型租售比 -->
+    <view class="room-type-card" wx:if="{{hasRoomTypeRatio}}">
+      <view class="card-title">户型租售比</view>
+      <view class="room-type-list">
+        <view class="room-type-item" wx:for="{{roomTypeRatioList}}" wx:key="roomType">
+          <view class="room-type-info">
+            <text class="room-type-name">{{item.roomType}}</text>
+            <text class="room-type-label">{{item.label}}</text>
+          </view>
+          <view class="room-type-ratio" style="background-color: {{item.color}}">
+            <text class="ratio-value">{{item.ratio}}%</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
     <!-- 租售比趋势图 -->
     <view class="trend-chart-card" wx:if="{{hasTrendData}}">
       <canvas type="2d" id="trendCanvas" class="trend-canvas" bindtouchstart="onCanvasTouchStart" bindtouchend="onCanvasTouchEnd"></canvas>

@@ -10,6 +10,8 @@ Page({
     minRatio: 0,
     maxRatio: 10,
     hasTrendData: false,
+    hasRoomTypeRatio: false,
+    roomTypeRatioList: [],
     trendCanvasWidth: 0,
     trendCanvasHeight: 0,
     // 趋势图选中点
@@ -89,6 +91,45 @@ Page({
     }
   },
 
+  // 处理户型租售比数据
+  processRoomTypeRatio(roomTypeRatioData) {
+    const { minRatio, maxRatio } = this.data
+    const { getRentRatioColor } = require('../../utils/colorUtils.js')
+
+    // 户型标签映射
+    const roomTypeLabels = {
+      '1': '开放式/一房',
+      '2': '两房',
+      '3': '三房',
+      '4': '四房及以上'
+    }
+
+    return Object.entries(roomTypeRatioData)
+      .map(([roomType, ratio]) => {
+        // 判断户型类型（按面积或房间数）
+        let label = ''
+        if (roomTypeLabels[roomType]) {
+          label = roomTypeLabels[roomType]
+        } else if (!isNaN(parseInt(roomType))) {
+          const area = parseInt(roomType)
+          if (area < 300) label = '小户型'
+          else if (area < 600) label = '中户型'
+          else if (area < 1000) label = '大户型'
+          else label = '豪宅'
+        } else {
+          label = '其他'
+        }
+
+        return {
+          roomType: roomType,
+          ratio: parseFloat(ratio).toFixed(2),
+          label: label,
+          color: getRentRatioColor(ratio, minRatio, maxRatio)
+        }
+      })
+      .sort((a, b) => parseFloat(b.ratio) - parseFloat(a.ratio)) // 按租售比降序排列
+  },
+
   async loadEstateDetail(estateId) {
     wx.showLoading({ title: '加载中...' })
     try {
@@ -101,14 +142,21 @@ Page({
         )
         
         // 检查是否有趋势数据
-        const hasTrendData = res.data.overall_ratio_timeseries && 
+        const hasTrendData = res.data.overall_ratio_timeseries &&
           Object.keys(res.data.overall_ratio_timeseries).length > 0
-        
+
+        // 处理户型租售比数据
+        const roomTypeRatioData = res.data.room_type_ratio || {}
+        const hasRoomTypeRatio = Object.keys(roomTypeRatioData).length > 0
+        const roomTypeRatioList = this.processRoomTypeRatio(roomTypeRatioData)
+
         this.setData({
           estate: res.data,
           loading: false,
           ratioColor: color,
-          hasTrendData: hasTrendData
+          hasTrendData: hasTrendData,
+          hasRoomTypeRatio: hasRoomTypeRatio,
+          roomTypeRatioList: roomTypeRatioList
         })
         
         // 如果有趋势数据，等待页面渲染后绘制图表

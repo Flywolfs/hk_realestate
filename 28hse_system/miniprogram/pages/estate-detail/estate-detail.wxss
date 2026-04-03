@@ -105,6 +105,65 @@
   border: 1rpx solid #4CAF50;
 }
 
+/* 户型租售比卡片 */
+.room-type-card {
+  background-color: #fff;
+  padding: 30rpx;
+  border-radius: 16rpx;
+  margin-bottom: 20rpx;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.08);
+}
+
+.room-type-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.room-type-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 24rpx;
+  background-color: #f8f8f8;
+  border-radius: 12rpx;
+  transition: background-color 0.2s;
+}
+
+.room-type-item:active {
+  background-color: #f0f0f0;
+}
+
+.room-type-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.room-type-name {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #333;
+}
+
+.room-type-label {
+  font-size: 24rpx;
+  color: #999;
+}
+
+.room-type-ratio {
+  padding: 12rpx 24rpx;
+  border-radius: 24rpx;
+  min-width: 100rpx;
+  text-align: center;
+}
+
+.room-type-ratio .ratio-value {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #fff;
+}
+
 /* 趋势图卡片 */
 .trend-chart-card {
   background-color: #fff;
