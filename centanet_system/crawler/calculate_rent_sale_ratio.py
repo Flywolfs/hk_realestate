@@ -271,7 +271,7 @@ def calculate_ratio_for_cluster(sale_prices: List[float], rent_prices: List[floa
     rent_sale_ratio = (avg_rent_price * 12) / avg_sale_price
     
     # 将租售比转换为百分比形式
-    return round(rent_sale_ratio * 100, 4)
+    return round(float(rent_sale_ratio * 100), 4)
 
 
 def get_month_key(date_obj: datetime) -> str:
@@ -390,6 +390,205 @@ def generate_monthly_ratios(buy_transactions: List[Dict], rent_transactions: Lis
     return monthly_ratios
 
 
+def generate_room_type_ratios_for_latest_month(
+        buy_transactions: List[Dict],
+        rent_transactions: List[Dict],
+        min_date: Optional[str] = None,
+        enable_outlier_removal: bool = True) -> Dict[str, float]:
+    """
+    按月计算各户型的租售比，逻辑与 generate_monthly_ratios 一致：
+    - 先将买卖和出租数据分别按 (户型聚类key, 月份) 聚合
+    - 对每个户型按月遍历，缺数据时用上月价格填补
+    - 只返回最新月份的各户型租售比
+
+    Args:
+        buy_transactions: 买卖交易记录列表
+        rent_transactions: 出租交易记录列表
+        min_date: 最早日期限制，格式为YYYY-MM-DD
+        enable_outlier_removal: 是否启用异常值剔除
+
+    Returns:
+        字典 {平均面积(str): 最新月份租售比}
+    """
+    area_threshold = 0.08  # 8%的面积差值阈值
+
+    # 解析 min_date
+    start_date = datetime.strptime(min_date, "%Y-%m-%d") if min_date else datetime(2025, 1, 1)
+
+    def get_area(trans):
+        """安全地获取交易记录中的面积值"""
+        a = trans.get('area', 0)
+        if isinstance(a, str):
+            try:
+                a = float(a)
+            except (ValueError, TypeError):
+                return None
+        return a if a and a > 0 else None
+
+    def assign_to_cluster(clusters_meta: Dict, area: float) -> Optional[int]:
+        """
+        尝试将面积 area 分配到已有聚类中（8%容差）。
+        clusters_meta: {cluster_key: avg_area}
+        返回匹配的 cluster_key，若无则返回 None。
+        """
+        for key, avg in clusters_meta.items():
+            if abs(area - avg) / max(area, avg) < area_threshold:
+                return key
+        return None
+
+    # ------------------------------------------------------------------ #
+    # Step 1: 将买卖和出租数据分别聚类并按月聚合                            #
+    # 结构: buy_cluster_monthly[cluster_key][month_key] = [price_per_sqft] #
+    # ------------------------------------------------------------------ #
+    def build_cluster_monthly(transactions, price_field):
+        """
+        返回:
+          cluster_monthly: {cluster_key: {month_key: [price]}}
+          clusters_meta:   {cluster_key: current_avg_area}  — 随数据更新
+        """
+        cluster_monthly = {}
+        clusters_meta = {}   # {cluster_key: avg_area}
+        cluster_areas = {}   # {cluster_key: [all_areas_so_far]}
+        next_key = 0         # 简单自增 key，与 room_count/area 无关
+
+        for trans in transactions:
+            # 日期过滤
+            date_str = trans.get('date')
+            if not date_str:
+                continue
+            try:
+                trans_date = datetime.strptime(date_str, "%Y-%m-%d")
+            except ValueError:
+                continue
+            if trans_date < start_date:
+                continue
+
+            area = get_area(trans)
+            if area is None:
+                continue
+
+            price = trans.get(price_field)
+            if not price or not isinstance(price, (int, float)) or price <= 0:
+                continue
+
+            month_key = get_month_key(trans_date)
+
+            # 先尝试用 room_count 归类
+            room_count = trans.get('room_count', -1)
+            if room_count is not None and room_count > 0:
+                # 使用 room_count 作为聚类 key
+                ck = f"rc_{room_count}"
+            else:
+                # 根据面积容差匹配已有聚类
+                ck_found = assign_to_cluster(clusters_meta, area)
+                if ck_found is not None:
+                    ck = ck_found
+                else:
+                    ck = f"area_{next_key}"
+                    next_key += 1
+
+            # 维护聚类元数据
+            if ck not in clusters_meta:
+                clusters_meta[ck] = area
+                cluster_areas[ck] = [area]
+                cluster_monthly[ck] = {}
+            else:
+                cluster_areas[ck].append(area)
+                clusters_meta[ck] = float(np.mean(cluster_areas[ck]))
+
+            if month_key not in cluster_monthly[ck]:
+                cluster_monthly[ck][month_key] = []
+            cluster_monthly[ck][month_key].append(float(price))
+
+        return cluster_monthly, clusters_meta, cluster_areas
+
+    buy_cluster_monthly, buy_meta, buy_areas_map = build_cluster_monthly(
+        buy_transactions, 'price_per_sqft')
+    rent_cluster_monthly, rent_meta, rent_areas_map = build_cluster_monthly(
+        rent_transactions, 'rent_per_sqft')
+
+    # ------------------------------------------------------------------ #
+    # Step 2: 确定全局月份范围                                              #
+    # ------------------------------------------------------------------ #
+    all_months = set()
+    for monthly in buy_cluster_monthly.values():
+        all_months.update(monthly.keys())
+    for monthly in rent_cluster_monthly.values():
+        all_months.update(monthly.keys())
+
+    if not all_months:
+        return {}
+
+    max_month = max(all_months)
+    months_list = []
+    cur = start_date
+    while get_month_key(cur) <= max_month:
+        months_list.append(get_month_key(cur))
+        cur += relativedelta(months=1)
+
+    # ------------------------------------------------------------------ #
+    # Step 3: 对每个买卖聚类，按月遍历（缺数据时用上月填补），                #
+    #         匹配对应出租聚类，计算最新月份的租售比                          #
+    # ------------------------------------------------------------------ #
+    # 先建立 buy_cluster -> best_rent_cluster 的面积匹配映射
+    matched_rent_for_buy = {}     # {buy_ck: rent_ck}
+    matched_rent_used = set()
+
+    for buy_ck, buy_avg in buy_meta.items():
+        best_rent_ck = None
+        best_diff = float('inf')
+        for rent_ck, rent_avg in rent_meta.items():
+            if rent_ck in matched_rent_used:
+                continue
+            diff = abs(buy_avg - rent_avg) / max(buy_avg, rent_avg)
+            if diff < area_threshold and diff < best_diff:
+                best_diff = diff
+                best_rent_ck = rent_ck
+        if best_rent_ck is not None:
+            matched_rent_for_buy[buy_ck] = best_rent_ck
+            matched_rent_used.add(best_rent_ck)
+
+    room_type_ratios = {}
+
+    for buy_ck, rent_ck in matched_rent_for_buy.items():
+        buy_monthly = buy_cluster_monthly.get(buy_ck, {})
+        rent_monthly_data = rent_cluster_monthly.get(rent_ck, {})
+
+        last_sale_prices = []
+        last_rent_prices = []
+        latest_ratio = None
+
+        for month_key in months_list:
+            if month_key in buy_monthly and buy_monthly[month_key]:
+                cur_sale = buy_monthly[month_key]
+                last_sale_prices = cur_sale
+            else:
+                cur_sale = last_sale_prices
+
+            if month_key in rent_monthly_data and rent_monthly_data[month_key]:
+                cur_rent = rent_monthly_data[month_key]
+                last_rent_prices = cur_rent
+            else:
+                cur_rent = last_rent_prices
+
+            if cur_sale and cur_rent:
+                ratio = calculate_ratio_for_cluster(
+                    cur_sale, cur_rent, enable_outlier_removal)
+                if ratio is not None:
+                    latest_ratio = ratio
+
+        if latest_ratio is None:
+            continue
+
+        # 用买卖和出租聚类的平均面积均值作为 key
+        buy_avg_area = buy_meta[buy_ck]
+        rent_avg_area = rent_meta[rent_ck]
+        avg_area = int(round((buy_avg_area + rent_avg_area) / 2))
+        room_type_ratios[str(avg_area)] = round(float(latest_ratio), 4)
+
+    return room_type_ratios
+
+
 def calculate_rent_sale_ratio(base_dir: str = "./28hse/transaction_records_trans",
                                enable_outlier_removal: bool = True,
                                min_date: Optional[str] = None) -> Dict:
@@ -456,14 +655,7 @@ def calculate_rent_sale_ratio(base_dir: str = "./28hse/transaction_records_trans
             })
             continue
         
-        # 对买卖和出租数据分别进行户型聚类（应用日期限制）
-        buy_clusters = cluster_by_room_type(buy_transactions, min_date)
-        rent_clusters = cluster_by_room_type(rent_transactions, min_date)
-        
-        logger.info(f"  买卖数据户型聚类: {len(buy_clusters)} 个户型")
-        logger.info(f"  出租数据户型聚类: {len(rent_clusters)} 个户型")
-        
-        # 计算按月租售比（从min_date开始，每个月一个租售比）
+        # 计算按月整体租售比（从min_date开始，每个月一个租售比）
         monthly_ratios = generate_monthly_ratios(
             buy_transactions,
             rent_transactions,
@@ -486,68 +678,13 @@ def calculate_rent_sale_ratio(base_dir: str = "./28hse/transaction_records_trans
         latest_ratio = monthly_ratios[latest_month]
         logger.info(f"  按月租售比: 共 {len(monthly_ratios)} 个月份，最新({latest_month}): {latest_ratio:.4f}%")
         
-        # 计算各户型的租售比
-        room_type_ratios = {}
-        area_threshold = 0.08  # 8%的面积差值阈值
-        
-        # 用于记录已匹配的rent_cluster，避免重复匹配
-        matched_rent_areas = set()
-        
-        # 遍历买卖数据的每个户型聚类
-        for buy_area in sorted(buy_clusters.keys()):
-            buy_cluster_trans = buy_clusters[buy_area]
-            
-            # 在出租数据中寻找匹配的户型（直接相等或面积差值<8%）
-            matched_rent_area = None
-            
-            # 首先检查是否有完全相同的面积
-            if buy_area in rent_clusters and buy_area not in matched_rent_areas:
-                matched_rent_area = buy_area
-            else:
-                # 没有完全相同的，寻找面积差值<8%的
-                for rent_area in rent_clusters.keys():
-                    if rent_area in matched_rent_areas:
-                        continue
-                    # 计算面积差值比例
-                    area_diff_ratio = abs(buy_area - rent_area) / max(buy_area, rent_area)
-                    if area_diff_ratio < area_threshold:
-                        matched_rent_area = rent_area
-                        break
-            
-            if matched_rent_area is None:
-                # 没有找到匹配的出租户型，跳过
-                logger.debug(f"    买卖户型面积 {buy_area}平方英尺: 未找到匹配的出租户型")
-                continue
-            
-            # 标记该出租户型已被匹配
-            matched_rent_areas.add(matched_rent_area)
-            rent_cluster_trans = rent_clusters[matched_rent_area]
-            
-            # 提取价格数据（应用日期限制）
-            cluster_sale_prices = extract_valid_values(buy_cluster_trans, 'price_per_sqft', min_date)
-            cluster_rent_prices = extract_valid_values(rent_cluster_trans, 'rent_per_sqft', min_date)
-            
-            # 计算该户型的租售比
-            cluster_ratio = calculate_ratio_for_cluster(
-                cluster_sale_prices,
-                cluster_rent_prices,
-                enable_outlier_removal
-            )
-            
-            if cluster_ratio is not None:
-                # 使用买卖和出租的平均面积作为key
-                avg_area = int(round((buy_area + matched_rent_area) / 2))
-                room_type_ratios[str(avg_area)] = cluster_ratio
-                
-                if buy_area == matched_rent_area:
-                    logger.info(f"    户型面积 {avg_area}平方英尺: 租售比 {cluster_ratio:.4f}% "
-                              f"(买{len(cluster_sale_prices)}条, 租{len(cluster_rent_prices)}条)")
-                else:
-                    logger.info(f"    户型面积 {avg_area}平方英尺: 租售比 {cluster_ratio:.4f}% "
-                              f"(买{len(cluster_sale_prices)}条@{buy_area}ft², "
-                              f"租{len(cluster_rent_prices)}条@{matched_rent_area}ft²)")
-            else:
-                logger.debug(f"    户型面积 {buy_area}/{matched_rent_area}平方英尺: 数据不足，跳过")
+        # 计算各户型的租售比（与月度计算逻辑一致，只返回最新月份的户型租售比）
+        room_type_ratios = generate_room_type_ratios_for_latest_month(
+            buy_transactions,
+            rent_transactions,
+            min_date,
+            enable_outlier_removal
+        )
         
         # 保存结果
         results[estate_id] = {
@@ -555,7 +692,7 @@ def calculate_rent_sale_ratio(base_dir: str = "./28hse/transaction_records_trans
             "room_type_ratio": room_type_ratios
         }
         
-        logger.info(f"  成功计算 {len(room_type_ratios)} 个户型的租售比")
+        logger.info(f"  成功计算 {len(room_type_ratios)} 个户型的租售比（最新月份: {latest_month}）")
     
     # 输出跳过的小区统计
     if skipped_estates:
@@ -616,7 +753,8 @@ def save_results(results: Dict, output_file: str = "average_rent_sale_ratio.json
                 "formula": "(月租金单价 * 12) / 售价单价 * 100",
                 "total_estates": len(results),
                 "clustering_method": "基于room_count字段，room_count=-1时根据面积差值<8%进行聚类",
-                "overall_ratio_format": "按月计算，key为YYYY-MM格式，value为当月租售比"
+                "overall_ratio_format": "按月计算，key为YYYY-MM格式，value为当月租售比",
+                "room_type_ratio_format": "与月度整体计算逻辑一致，缺数据时向前填补，只保存最新月份的各户型租售比"
             },
             "data": sorted_results
         }
@@ -666,7 +804,7 @@ def main():
     # 示例：设置最早日期为2025-01-01，只分析该日期之后的数据
     # results = calculate_rent_sale_ratio(base_dir="./transaction_record_20260223_trans", min_date="2025-01-01")
     min_date = "2025-01-01"
-    results = calculate_rent_sale_ratio(base_dir="./transaction_record_20260223_trans", min_date=min_date)
+    results = calculate_rent_sale_ratio(base_dir="./transaction_record_20260329_trans", min_date=min_date)
     
     # 保存结果
     if results:
