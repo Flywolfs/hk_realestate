@@ -61,6 +61,19 @@
       </view>
     </view>
 
+    <!-- 尺价趋势图 -->
+    <view class="trend-chart-card price-trend-card" wx:if="{{hasPriceTrendData}}">
+      <canvas type="2d" id="priceTrendCanvas" class="trend-canvas" bindtouchstart="onPriceCanvasTouchStart" bindtouchend="onPriceCanvasTouchEnd"></canvas>
+      <!-- 选中点提示框 -->
+      <view class="trend-tooltip price-tooltip {{selectedPricePoint.position === 'bottom' ? 'trend-tooltip-bottom' : ''}}" wx:if="{{selectedPricePoint}}" style="left: {{selectedPricePoint.x}}rpx; top: {{selectedPricePoint.y}}rpx;">
+        <view class="trend-tooltip-arrow"></view>
+        <view class="trend-tooltip-content">
+          <view class="trend-tooltip-date">{{selectedPricePoint.date}}</view>
+          <view class="trend-tooltip-value price-tooltip-value">${{selectedPricePoint.value}}</view>
+        </view>
+      </view>
+    </view>
+
     <!-- 租售比趋势图 -->
     <view class="trend-chart-card" wx:if="{{hasTrendData}}">
       <canvas type="2d" id="trendCanvas" class="trend-canvas" bindtouchstart="onCanvasTouchStart" bindtouchend="onCanvasTouchEnd"></canvas>

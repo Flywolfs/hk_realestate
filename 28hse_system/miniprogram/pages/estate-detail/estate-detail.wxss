@@ -243,6 +243,15 @@
   text-align: center;
 }
 
+/* 尺价趋势图特殊样式 */
+.price-trend-card {
+  margin-bottom: 20rpx;
+}
+
+.price-tooltip-value {
+  color: #2196F3;
+}
+
 /* 加载中 */
 .loading {
   display: flex;
