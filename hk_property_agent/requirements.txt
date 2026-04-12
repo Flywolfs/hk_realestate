@@ -1,0 +1,18 @@
+langchain>=0.3
+langchain-openai
+langchain-community
+langchain-core
+langgraph
+chromadb
+cos-python-sdk-v5
+flask
+flask-cors
+PyJWT
+requests
+python-dotenv
+pydantic>=2.0
+
+# vLLM 本地 Embedding 服务（当 EMBEDDING_PROVIDER=vllm 时需要）
+# GPU 环境安装： pip install vllm
+# 注意：vLLM 是独立运行的服务进程，不是 Python 库依赖，需单独启动
+# vllm  # 取注释并单独执行: pip install vllm
