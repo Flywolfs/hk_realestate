@@ -1,0 +1,2 @@
+1: transaction_records:
+python scrape_transaction_records.py --mapping ../estates_mapping_detailed.json --output ../28hse/transaction_records_20260227 --data-dir ../28hse/transaction_records_20260215 --workers 3 --incremental

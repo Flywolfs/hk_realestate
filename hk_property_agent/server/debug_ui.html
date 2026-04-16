@@ -322,6 +322,29 @@
     .log-req   { color: #89b4fa; }
     .log-res   { color: #cba6f7; }
     .log-time  { color: #6c7086; }
+
+    /* Tool status indicator */
+    .tool-status {
+      font-size: 12px;
+      color: #888;
+      padding: 4px 8px;
+      background: #f5f5f5;
+      border-radius: 4px;
+      margin-bottom: 4px;
+      display: inline-block;
+    }
+
+    /* Streaming cursor */
+    .streaming-cursor::after {
+      content: '\u2588';
+      animation: blink 0.8s infinite;
+      color: #4e6ef2;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%      { opacity: 0; }
+    }
   </style>
 </head>
 <body>
@@ -350,6 +373,15 @@
     <input id="adminToken" type="text" placeholder="可选" />
   </div>
 
+  <div class="field-group">
+    <label>输出模式</label>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <label style="font-size:13px;color:#333;text-transform:none;letter-spacing:0;">
+        <input type="checkbox" id="streamToggle" checked /> 流式输出
+      </label>
+    </div>
+  </div>
+
   <div style="display:flex;gap:8px;flex-wrap:wrap;">
     <button class="btn btn-ghost" onclick="checkHealth()" style="flex:1">健康检查</button>
     <button class="btn btn-ghost" onclick="checkStats()" style="flex:1">查统计</button>
@@ -370,6 +402,10 @@
       <button class="quick-btn" onclick="sendQuick('查一下嘉湖山庄近12个月的尺价走势')">嘉湖山庄尺价趋势</button>
       <button class="quick-btn" onclick="sendQuick('帮我对比太古城、康怡花园和嘉湖山庄')">三盘横向对比</button>
       <button class="quick-btn" onclick="sendQuick('有没有将军澳租售比比较高的大型屋苑？')">语义检索</button>
+      <button class="quick-btn" onclick="sendQuick('尺价低于1万，租售比高于4%的屋苑有哪些？')">结构化筛选</button>
+      <button class="quick-btn" onclick="sendQuick('将军澳整体情况怎么样？')">地区统计</button>
+      <button class="quick-btn" onclick="sendQuick('太古城最近成交量如何？')">成交量查询</button>
+      <button class="quick-btn" onclick="sendQuick('太古城两房租金多少？')">租金查询</button>
     </div>
   </div>
 
@@ -558,6 +594,8 @@
   // ============================================================
   let sending = false;
 
+  function isStreamMode() { return $('streamToggle').checked; }
+
   async function sendMessage() {
     if (sending) return;
     const input = $('msgInput');
@@ -571,9 +609,22 @@
 
     appendMsg('user', text);
     log(`用户: ${text.slice(0, 60)}${text.length > 60 ? '…' : ''}`, 'info');
-    showTyping();
 
-    const { ok, data } = await apiCall('/api/agent/chat', 'POST', { message: text });
+    if (isStreamMode()) {
+      await sendMessageStream(text);
+    } else {
+      await sendMessageSync(text);
+    }
+
+    sending = false;
+    $('sendBtn').disabled = false;
+    input.focus();
+  }
+
+  // ── 同步模式 ──
+  async function sendMessageSync(text) {
+    showTyping();
+    const { ok, data } = await apiCall('/api/agent/chat?sync=true', 'POST', { message: text });
     hideTyping();
 
     if (ok && data.success) {
@@ -581,13 +632,109 @@
       log(`回复长度: ${data.reply.length} 字`, 'res');
     } else {
       const err = data.error || '请求失败';
-      appendMsg('sys', `⚠️ 错误: ${err}`);
+      appendMsg('sys', '\u26a0\ufe0f 错误: ' + err);
       log(`错误: ${err}`, 'error');
     }
+  }
 
-    sending = false;
-    $('sendBtn').disabled = false;
-    input.focus();
+  // ── 流式模式 ──
+  async function sendMessageStream(text) {
+    const url = getBase() + '/api/agent/chat/stream';
+    const headers = { 'Content-Type': 'application/json' };
+    const token = getToken();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    headers['X-WX-FROM-OPENID'] = getSid();
+
+    log('\u2192 POST /api/agent/chat/stream (stream)', 'req');
+
+    const { wrapper, bubbleEl, statusEl } = appendStreamBubble();
+
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ message: text }),
+      });
+
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        const err = errData.error || errData.detail || `HTTP ${resp.status}`;
+        bubbleEl.textContent = '\u26a0\ufe0f ' + err;
+        bubbleEl.classList.remove('streaming-cursor');
+        log(`\u2717 Stream error: ${err}`, 'error');
+        return;
+      }
+
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText = '';
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const event = JSON.parse(line);
+
+            if (event.type === 'status') {
+              statusEl.textContent = '\ud83d\udd0d ' + event.text;
+              statusEl.style.display = 'inline-block';
+              log(`[Tool] ${event.text}`, 'info');
+            } else if (event.type === 'token') {
+              statusEl.style.display = 'none';
+              fullText += event.text;
+              bubbleEl.textContent = fullText;
+              $('msgList').scrollTop = $('msgList').scrollHeight;
+            } else if (event.type === 'done') {
+              log(`\u2190 Stream done (${fullText.length} chars)`, 'res');
+            }
+          } catch (e) { /* skip malformed lines */ }
+        }
+      }
+
+      bubbleEl.classList.remove('streaming-cursor');
+      statusEl.style.display = 'none';
+      if (!fullText) bubbleEl.textContent = '(无回复内容)';
+
+    } catch (e) {
+      bubbleEl.textContent = '\u26a0\ufe0f 网络错误: ' + e.message;
+      bubbleEl.classList.remove('streaming-cursor');
+      log(`\u2717 Stream network error: ${e.message}`, 'error');
+    }
+  }
+
+  function appendStreamBubble() {
+    const list = $('msgList');
+    const wrapper = document.createElement('div');
+    wrapper.className = 'msg bot';
+
+    const statusEl = document.createElement('div');
+    statusEl.className = 'tool-status';
+    statusEl.style.display = 'none';
+
+    const bubbleEl = document.createElement('div');
+    bubbleEl.className = 'bubble streaming-cursor';
+
+    wrapper.innerHTML = '<div class="avatar bot-av">\ud83e\udd16</div><div></div>';
+    const contentDiv = wrapper.querySelector('div:last-child');
+    contentDiv.appendChild(statusEl);
+    contentDiv.appendChild(bubbleEl);
+
+    const timeEl = document.createElement('div');
+    timeEl.className = 'msg-time';
+    timeEl.textContent = now();
+    contentDiv.appendChild(timeEl);
+
+    list.appendChild(wrapper);
+    list.scrollTop = list.scrollHeight;
+    return { wrapper, bubbleEl, statusEl };
   }
 
   function sendQuick(text) {

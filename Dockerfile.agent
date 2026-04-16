@@ -1,0 +1,51 @@
+# ============================================================
+# Agent 服务 Dockerfile（微信云托管部署）
+# 独立于数据服务，运行 FastAPI + LangChain ReAct Agent
+# 数据文件通过 COS 对象存储在运行时动态下载
+# 环境变量在微信云托管控制台「服务设置 → 环境变量」中配置：
+#   DATA_MODE=cos
+#   COS_BUCKET / COS_REGION / COS_SECRET_ID / COS_SECRET_KEY
+#   LLM_PROVIDER=openai (或 deepseek)
+#   OPENAI_API_KEY / DEEPSEEK_API_KEY
+#   EMBEDDING_PROVIDER=openai
+#   AGENT_JWT_SECRET=<固定值，避免容器重启后JWT失效>
+#   AGENT_ADMIN_TOKEN=<热重载鉴权Token>
+# ============================================================
+
+FROM python:3.11-slim
+
+# 设置环境变量
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    DATA_MODE=cos
+
+# 安装系统依赖（gcc for chromadb C 扩展编译）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# 创建目录结构
+RUN mkdir -p /app/hk_property_agent \
+             /tmp/agent_data \
+             /tmp/agent_chroma_db
+
+# ---- 安装 Python 依赖 ----
+COPY hk_property_agent/requirements.txt /app/hk_property_agent/
+RUN pip install --no-cache-dir -r /app/hk_property_agent/requirements.txt
+
+# ---- 复制 Agent 代码 ----
+COPY hk_property_agent/ /app/hk_property_agent/
+
+# 工作目录
+WORKDIR /app
+
+# 对外暴露端口
+EXPOSE 5001
+
+# 启动命令：单 worker（LLM 调用为 IO 密集型，async 已足够）
+# timeout-keep-alive 设 120s 以支持长时间流式回复
+CMD ["uvicorn", "hk_property_agent.server.fastapi_app:app", \
+     "--host", "0.0.0.0", \
+     "--port", "5001", \
+     "--workers", "1", \
+     "--timeout-keep-alive", "120"]

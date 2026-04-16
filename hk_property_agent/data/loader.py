@@ -38,19 +38,25 @@ _HSE28_DIR = os.environ.get('HSE28_DATA_DIR',
 # COS 文件键名映射
 COS_KEYS = {
     'estate_static':       'data/estate_info_20260221_convert.json',
+    'estate_raw':          'data/estate_info_20260221.json',
     'rent_ratio':          'data/average_rent_sale_ratio.json',
     'housing_types':       'data/housing_types.json',
     'price_trend':         'data/monthly_price_trend.json',
     'dynamic_estate_data': 'data/dynamic_estate_data.json',
+    'sales_volume':        'data/monthly_sales_volume.json',
+    'rental_summary':      'data/rental_summary.json',
 }
 
 # 本地文件路径映射
 LOCAL_PATHS = {
     'estate_static':       os.path.join(_CENTANET_DIR, 'estate_info_20260221_convert.json'),
+    'estate_raw':          os.path.join(_CENTANET_DIR, 'estate_info_20260221.json'),
     'rent_ratio':          os.path.join(_CENTANET_DIR, 'average_rent_sale_ratio.json'),
     'housing_types':       os.path.join(_HSE28_DIR, 'housing_types.json'),
     'price_trend':         os.path.join(_CENTANET_DIR, 'monthly_price_trend.json'),
     'dynamic_estate_data': os.path.join(_CENTANET_DIR, 'dynamic_estate_data.json'),
+    'sales_volume':        os.path.join(_CENTANET_DIR, 'monthly_sales_volume.json'),
+    'rental_summary':      os.path.join(_CENTANET_DIR, 'rental_summary.json'),
 }
 
 
@@ -131,6 +137,48 @@ class AgentDataLoader:
         """构建内存索引，加速查询。（在持锁状态下调用）"""
         estate_static = self._data.get('estate_static', {})
 
+        # ----------------------------------------------------------
+        # 从原始 estate_info 提取 scope 地区数据，补充到 estate_static
+        # 原始文件结构: {"count": N, "data": [{typeCode, scope, ...}, ...]}
+        # ----------------------------------------------------------
+        estate_raw = self._data.get('estate_raw', {})
+        raw_list = estate_raw.get('data', []) if isinstance(estate_raw, dict) else []
+        scope_map = {}  # typeCode -> {area, sub_area, territory}
+        for item in raw_list:
+            type_code = item.get('typeCode', '')
+            scope = item.get('scope', {})
+            if type_code and scope:
+                db = scope.get('db', '')  # e.g. "將軍澳 (西貢區)"
+                web_scope = scope.get('webScope', '')  # e.g. "將軍澳"
+                territory = scope.get('terr', '')  # e.g. "九龍"
+                # 从 db 字段提取区名，格式: "將軍澳 (西貢區)" -> "西貢區"
+                district = ''
+                if '(' in db:
+                    district = db.split('(')[-1].rstrip(')')
+                elif '（' in db:
+                    district = db.split('（')[-1].rstrip('）')
+                else:
+                    district = db
+                scope_map[type_code] = {
+                    'area': district,       # 区级: "西貢區"
+                    'sub_area': web_scope,  # 子区域: "將軍澳"
+                    'territory': territory, # 大区: "九龍"
+                }
+
+        # 将 scope 数据合并到 estate_static
+        enriched_count = 0
+        for estate_id, info in estate_static.items():
+            if not info.get('area') and not info.get('district'):
+                scope_info = scope_map.get(estate_id, {})
+                if scope_info:
+                    info['area'] = scope_info['area']
+                    info['sub_area'] = scope_info['sub_area']
+                    info['territory'] = scope_info['territory']
+                    enriched_count += 1
+
+        if enriched_count:
+            print(f"[DataLoader] 从原始文件补充了 {enriched_count} 条地区数据")
+
         # 名称 -> 屋苑ID 的反向索引（支持中英文名称）
         self._name_to_id: Dict[str, str] = {}
         for estate_id, info in estate_static.items():
@@ -150,6 +198,10 @@ class AgentDataLoader:
             area = info.get('area', '') or info.get('district', '')
             if area:
                 self._area_index.setdefault(area, []).append(estate_id)
+            # 同时按子区域建立索引（如 "將軍澳"）
+            sub_area = info.get('sub_area', '')
+            if sub_area and sub_area != area:
+                self._area_index.setdefault(sub_area, []).append(estate_id)
 
         print(f"[DataLoader] 索引构建完成: {len(self._name_to_id)} 条名称索引, {len(self._area_index)} 个地区")
 
@@ -188,6 +240,18 @@ class AgentDataLoader:
     def dynamic_estate_data(self) -> Dict:
         with self._lock:
             return self._data.get('dynamic_estate_data', {})
+
+    @property
+    def sales_volume_data(self) -> Dict:
+        with self._lock:
+            raw = self._data.get('sales_volume', {})
+            return raw.get('data', {}) if isinstance(raw, dict) and 'data' in raw else raw
+
+    @property
+    def rental_summary_data(self) -> Dict:
+        with self._lock:
+            raw = self._data.get('rental_summary', {})
+            return raw.get('data', {}) if isinstance(raw, dict) and 'data' in raw else raw
 
     # ------------------------------------------------------------------
     # 结构化查询接口
@@ -331,6 +395,278 @@ class AgentDataLoader:
             'estate_id': estate_id,
             'monthly_trend': recent_trend,
             'current_price_per_sqft': self.dynamic_estate_data.get(estate_id, {}).get('current_price_per_sqft'),
+        }
+
+    def get_sales_volume(self, estate_id: str = None, area: str = None, months: int = 12) -> Optional[Dict]:
+        """
+        获取成交量数据。
+        :param estate_id: 指定屋苑ID（可选）
+        :param area: 指定地区（可选），会聚合该地区所有屋苑
+        :param months: 最近几个月，默认12
+        """
+        months = min(36, max(1, months))
+        volume_data = self.sales_volume_data
+
+        if estate_id:
+            estate_vol = volume_data.get(estate_id, {})
+            if not estate_vol:
+                return None
+            sorted_months = sorted(estate_vol.keys())[-months:]
+            return {
+                'estate_id': estate_id,
+                'monthly_volume': {m: estate_vol[m] for m in sorted_months},
+            }
+
+        if area:
+            # 聚合该地区所有屋苑的成交量
+            with self._lock:
+                ids = self._area_index.get(area, [])
+            if not ids:
+                return None
+            aggregated = {}
+            for eid in ids:
+                estate_vol = volume_data.get(eid, {})
+                for month, data in estate_vol.items():
+                    if month not in aggregated:
+                        aggregated[month] = {'count': 0, 'total_price_sum': 0, 'total_price_count': 0}
+                    if isinstance(data, dict):
+                        aggregated[month]['count'] += data.get('count', 0)
+                        avg_p = data.get('avg_price', 0)
+                        cnt = data.get('count', 0)
+                        if avg_p and cnt:
+                            aggregated[month]['total_price_sum'] += avg_p * cnt
+                            aggregated[month]['total_price_count'] += cnt
+            # 计算区域月均价
+            result = {}
+            for month, agg in aggregated.items():
+                result[month] = {
+                    'count': agg['count'],
+                    'avg_price': round(agg['total_price_sum'] / agg['total_price_count']) if agg['total_price_count'] else None,
+                }
+            sorted_months = sorted(result.keys())[-months:]
+            return {
+                'area': area,
+                'monthly_volume': {m: result[m] for m in sorted_months},
+            }
+
+        return None
+
+    def get_rental_info(self, estate_id: str) -> Optional[Dict]:
+        """获取指定屋苑的租金摘要数据。"""
+        rental_data = self.rental_summary_data.get(estate_id)
+        if not rental_data:
+            return None
+        return {
+            'estate_id': estate_id,
+            'recent_rentals': rental_data.get('recent_rentals', []),
+            'avg_rent': rental_data.get('avg_rent'),
+            'rent_per_sqft': rental_data.get('rent_per_sqft'),
+        }
+
+    def filter_estates(self, area: str = None, min_price: float = None,
+                       max_price: float = None, min_rent_ratio: float = None,
+                       max_rent_ratio: float = None, min_area_size: float = None,
+                       max_area_size: float = None, sort_by: str = 'rent_ratio',
+                       sort_order: str = 'desc', limit: int = 10) -> List[Dict]:
+        """
+        按数值条件筛选屋苑。
+        价格为尺价（港元/平方呎），租售比为百分比，面积为实用面积（平方呎）。
+        """
+        limit = min(30, max(1, limit))
+        estate_static = self.estate_static
+        rent_ratio_data = self.rent_ratio_data
+        dynamic_data = self.dynamic_estate_data
+
+        # 确定候选屋苑范围
+        if area:
+            with self._lock:
+                candidate_ids = self._area_index.get(area, [])
+            if not candidate_ids:
+                return []
+        else:
+            candidate_ids = list(estate_static.keys())
+
+        results = []
+        for eid in candidate_ids:
+            info = estate_static.get(eid, {})
+            dynamic = dynamic_data.get(eid, {})
+
+            price = dynamic.get('current_price_per_sqft')
+            min_a = dynamic.get('min_area')
+            max_a = dynamic.get('max_area')
+
+            # 获取租售比
+            rent_data = rent_ratio_data.get(eid, {})
+            ratio = None
+            if isinstance(rent_data, dict):
+                overall = rent_data.get('overall_ratio', {})
+                if isinstance(overall, dict) and overall:
+                    ratio = list(overall.values())[-1]
+            elif isinstance(rent_data, (int, float)):
+                ratio = rent_data
+
+            # 应用筛选条件
+            if min_price is not None and (price is None or price < min_price):
+                continue
+            if max_price is not None and (price is None or price > max_price):
+                continue
+            if min_rent_ratio is not None and (ratio is None or ratio < min_rent_ratio):
+                continue
+            if max_rent_ratio is not None and (ratio is None or ratio > max_rent_ratio):
+                continue
+            if min_area_size is not None and (min_a is None or min_a < min_area_size):
+                continue
+            if max_area_size is not None and (max_a is None or max_a > max_area_size):
+                continue
+
+            results.append({
+                'id': eid,
+                'name': info.get('name', ''),
+                'area': info.get('area', '') or info.get('district', ''),
+                'sub_area': info.get('sub_area', ''),
+                'current_price_per_sqft': price,
+                'rent_ratio_latest': ratio,
+                'min_area': min_a,
+                'max_area': max_a,
+            })
+
+        # 排序
+        sort_key_map = {
+            'rent_ratio': 'rent_ratio_latest',
+            'price': 'current_price_per_sqft',
+            'area_size': 'max_area',
+        }
+        key_field = sort_key_map.get(sort_by, 'rent_ratio_latest')
+        reverse = sort_order != 'asc'
+        results.sort(key=lambda x: x.get(key_field) or 0, reverse=reverse)
+
+        return results[:limit]
+
+    def get_area_statistics(self, area: str = None) -> Optional[Dict]:
+        """
+        获取地区统计数据。
+        :param area: 指定地区名，不传则返回所有地区概览。
+        """
+        import statistics
+
+        if area:
+            with self._lock:
+                ids = self._area_index.get(area, [])
+            if not ids:
+                return None
+
+            estate_static = self.estate_static
+            dynamic_data = self.dynamic_estate_data
+            rent_ratio_data = self.rent_ratio_data
+
+            prices = []
+            ratios = []
+            estates_info = []
+            for eid in ids:
+                info = estate_static.get(eid, {})
+                dynamic = dynamic_data.get(eid, {})
+                price = dynamic.get('current_price_per_sqft')
+                if price:
+                    prices.append(price)
+
+                rent_data = rent_ratio_data.get(eid, {})
+                ratio = None
+                if isinstance(rent_data, dict):
+                    overall = rent_data.get('overall_ratio', {})
+                    if isinstance(overall, dict) and overall:
+                        ratio = list(overall.values())[-1]
+                elif isinstance(rent_data, (int, float)):
+                    ratio = rent_data
+                if ratio:
+                    ratios.append(ratio)
+
+                estates_info.append({
+                    'id': eid,
+                    'name': info.get('name', ''),
+                    'price': price,
+                    'ratio': ratio,
+                })
+
+            # Top 5 按租售比排序
+            top5 = sorted(
+                [e for e in estates_info if e.get('ratio')],
+                key=lambda x: x['ratio'], reverse=True
+            )[:5]
+
+            # 近3月价格变化
+            price_change = self._calc_area_price_change(ids, months=3)
+
+            return {
+                'area': area,
+                'total_estates': len(ids),
+                'median_price': round(statistics.median(prices)) if prices else None,
+                'median_rent_ratio': round(statistics.median(ratios), 2) if ratios else None,
+                'price_change_3m': price_change,
+                'top5_by_rent_ratio': [
+                    {'name': e['name'], 'ratio': e['ratio'], 'price': e['price']}
+                    for e in top5
+                ],
+            }
+
+        # 全港概览：每个地区一行摘要
+        with self._lock:
+            all_areas = dict(self._area_index)
+
+        estate_static = self.estate_static
+        dynamic_data = self.dynamic_estate_data
+
+        overview = []
+        for area_name, ids in sorted(all_areas.items()):
+            prices = []
+            for eid in ids:
+                dynamic = dynamic_data.get(eid, {})
+                p = dynamic.get('current_price_per_sqft')
+                if p:
+                    prices.append(p)
+            overview.append({
+                'area': area_name,
+                'estate_count': len(ids),
+                'median_price': round(statistics.median(prices)) if prices else None,
+            })
+
+        return {'overview': overview}
+
+    def _calc_area_price_change(self, estate_ids: List[str], months: int = 3) -> Optional[Dict]:
+        """计算地区近 N 月尺价变化百分比。"""
+        price_trend = self.price_trend
+        all_months_set = set()
+        monthly_prices = {}
+
+        for eid in estate_ids:
+            trend = price_trend.get(eid, {})
+            monthly = trend.get('monthly_price_trend', {}) if isinstance(trend, dict) else {}
+            for m, v in monthly.items():
+                val = v if isinstance(v, (int, float)) else None
+                if val:
+                    all_months_set.add(m)
+                    monthly_prices.setdefault(m, []).append(val)
+
+        if not monthly_prices:
+            return None
+
+        sorted_months = sorted(all_months_set)
+        if len(sorted_months) < 2:
+            return None
+
+        recent = sorted_months[-1]
+        compare = sorted_months[-min(months + 1, len(sorted_months))]
+
+        avg_recent = sum(monthly_prices.get(recent, [])) / len(monthly_prices.get(recent, [1]))
+        avg_compare = sum(monthly_prices.get(compare, [])) / len(monthly_prices.get(compare, [1]))
+
+        if avg_compare == 0:
+            return None
+
+        pct = (avg_recent - avg_compare) / avg_compare * 100
+        return {
+            'from_month': compare,
+            'to_month': recent,
+            'change_pct': round(pct, 1),
         }
 
     def list_all_areas(self) -> List[str]:

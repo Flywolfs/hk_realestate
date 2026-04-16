@@ -7,10 +7,13 @@ chromadb
 cos-python-sdk-v5
 flask
 flask-cors
+fastapi
+uvicorn[standard]
 PyJWT
 requests
 python-dotenv
 pydantic>=2.0
+opencc-python-reimplemented
 
 # vLLM 本地 Embedding 服务（当 EMBEDDING_PROVIDER=vllm 时需要）
 # GPU 环境安装： pip install vllm

@@ -10,6 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from typing import List
 from langchain_core.tools import tool
 from data.loader import get_loader
+from agent.tools.utils import to_traditional
 
 
 @tool
@@ -22,6 +23,7 @@ def compare_estates(estate_names: List[str]) -> str:
     参数:
         estate_names: 要对比的屋苑名称列表，例如 ["太古城", "康怡花园", "嘉湖山庄"]
     """
+    estate_names = [to_traditional(n) for n in estate_names]
     loader = get_loader()
 
     if not estate_names:

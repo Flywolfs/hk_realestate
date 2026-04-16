@@ -28,6 +28,7 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 
 from server.wechat_auth import login_required, get_user_from_request, get_wechat_session, generate_token
+from server.security import check_rate_limit, check_content_safety
 from agent.agent_core import get_agent
 from data.loader import get_loader
 
@@ -112,11 +113,18 @@ def chat():
     if not message:
         return jsonify({'success': False, 'error': '消息内容不能为空'}), 400
 
-    if len(message) > 500:
-        return jsonify({'success': False, 'error': '消息过长，请控制在 500 字以内'}), 400
-
     user = request.current_user
     session_id = user['openid']
+
+    # 预检拦截：频率限制
+    rate_ok, rate_reason = check_rate_limit(session_id)
+    if not rate_ok:
+        return jsonify({'success': False, 'error': rate_reason}), 429
+
+    # 预检拦截：内容安全
+    safe_ok, safe_reason = check_content_safety(message)
+    if not safe_ok:
+        return jsonify({'success': True, 'reply': safe_reason, 'session_id': session_id})
 
     logger.info(f"[Chat] session={session_id[:12]}... msg_len={len(message)}")
 

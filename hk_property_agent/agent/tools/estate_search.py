@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from langchain_core.tools import tool
 from data.loader import get_loader
+from agent.tools.utils import to_traditional
 
 
 @tool
@@ -22,6 +23,7 @@ def search_estate_by_name(name: str) -> str:
     参数:
         name: 屋苑名称（中文或英文），例如 "太古城"、"Taikoo Shing"
     """
+    name = to_traditional(name)
     loader = get_loader()
 
     # 尝试精确匹配
@@ -60,6 +62,7 @@ def search_estates_by_area(area: str, limit: int = 15) -> str:
         area: 香港地区名称，例如 "荃湾"、"沙田"、"旺角"、"将军澳"
         limit: 返回屋苑数量上限，默认 15，最大 30
     """
+    area = to_traditional(area)
     loader = get_loader()
     limit = min(30, max(1, limit))
 

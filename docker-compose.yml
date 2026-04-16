@@ -1,0 +1,46 @@
+version: '3'
+services:
+  # ---- 数据服务（28hse 后端 API）----
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.standalone
+    ports:
+      - '27081:5000'
+    container_name: 28hse_standalone
+    volumes:
+      # 将宿主机上的数据目录挂载到容器 /data/
+      # 宿主机路径中需包含以下文件（与 data_config.py 中 DATA_DIR 模式的文件名一致）：
+      #   estate_info_20260221_convert.json
+      #   average_rent_sale_ratio.json
+      #   housing_types.json
+      #   monthly_price_trend.json
+      #   dynamic_estate_data.json
+      #   transaction_buy/  （可选，用于实时读取交易记录的回退）
+      - ./centanet_system/crawler:/data:ro
+    environment:
+      - DATA_MODE=local
+      - DATA_DIR=/data
+      - ADMIN_RELOAD_TOKEN=
+      - MYSQL_USERNAME=
+      - MYSQL_PASSWORD=
+      - MYSQL_ADDRESS=
+
+  # ---- Agent 服务（港房通 AI 问答）----
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    ports:
+      - '27082:5001'
+    container_name: 28hse_agent
+    volumes:
+      # 本地开发：直接挂载数据目录，避免走 COS
+      - ./centanet_system/crawler:/data/centanet:ro
+      - ./28hse_system:/data/28hse:ro
+    env_file:
+      - ./hk_property_agent/.env
+    environment:
+      - DATA_MODE=local
+      - CENTANET_DATA_DIR=/data/centanet
+      - HSE28_DATA_DIR=/data/28hse

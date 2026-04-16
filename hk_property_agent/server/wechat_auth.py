@@ -74,25 +74,24 @@ def verify_token(token: str) -> dict | None:
         return None
 
 
-def get_user_from_request() -> dict | None:
+def extract_user_from_headers(headers: dict) -> dict | None:
     """
-    从请求中提取用户身份。
-    优先检查云托管注入的 X-WX-FROM-OPENID header，
-    其次检查 Authorization: Bearer <JWT> header。
+    框架无关的用户提取函数。
+    :param headers: HTTP 请求头字典（key 大小写不敏感需调用方处理）
+    :return: 用户信息字典或 None
     """
     # 云托管云调用模式
-    openid = request.headers.get('X-WX-FROM-OPENID')
+    openid = headers.get('X-WX-FROM-OPENID') or headers.get('x-wx-from-openid')
     if openid:
         return {
             'openid': openid,
-            'unionid': request.headers.get('X-WX-FROM-UNIONID', ''),
-            'appid': request.headers.get('X-WX-FROM-APPID', ''),
-            'ip': request.headers.get('X-WX-FROM-IP', ''),
+            'unionid': headers.get('X-WX-FROM-UNIONID', '') or headers.get('x-wx-from-unionid', ''),
+            'appid': headers.get('X-WX-FROM-APPID', '') or headers.get('x-wx-from-appid', ''),
             'source': 'cloud_call',
         }
 
-    # JWT Token 模式（本地测试）
-    auth_header = request.headers.get('Authorization', '')
+    # JWT Token 模式
+    auth_header = headers.get('Authorization', '') or headers.get('authorization', '')
     if auth_header.startswith('Bearer '):
         token = auth_header[7:]
         payload = verify_token(token)
@@ -103,6 +102,13 @@ def get_user_from_request() -> dict | None:
             }
 
     return None
+
+
+def get_user_from_request() -> dict | None:
+    """
+    从 Flask request 中提取用户身份（Flask 专用封装）。
+    """
+    return extract_user_from_headers(dict(request.headers))
 
 
 def login_required(f):

@@ -1,13 +1,7 @@
 # ============================================================
-# 小程序云托管版 Dockerfile
-# 数据文件通过 COS 对象存储在运行时动态下载（DATA_MODE=cos）
-# 环境变量在微信云托管控制台「服务设置 → 环境变量」中配置：
-#   DATA_MODE=cos
-#   COS_BUCKET=<bucket名称>
-#   COS_REGION=<地域>
-#   COS_SECRET_ID=<SecretId>
-#   COS_SECRET_KEY=<SecretKey>
-#   ADMIN_RELOAD_TOKEN=<热重载鉴权Token>
+# 普通部署版 Dockerfile（非云托管，本地/私有服务器部署）
+# 数据文件通过 docker-compose.standalone.yml 的 volumes 从宿主机挂载
+# 挂载目录对应宿主机 centanet_system/crawler/ 下的数据文件
 # ============================================================
 
 # ============================================================
@@ -27,14 +21,16 @@ RUN npm run build
 
 
 # ============================================================
-# 第二阶段：生产镜像（仅包含代码，不内置数据文件）
+# 第二阶段：生产镜像（仅包含代码，数据由外部挂载）
 # ============================================================
 FROM python:3.11-slim
 
 # 设置环境变量
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    FLASK_ENV=production
+    FLASK_ENV=production \
+    DATA_MODE=local \
+    DATA_DIR=/data
 
 # 安装系统依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -42,9 +38,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # 创建应用目录结构
+# /data/        ← 宿主机数据目录挂载点（由 docker-compose volumes 指定）
+# /app/         ← 应用代码目录
 RUN mkdir -p /app/28hse_system/backend/utils \
              /app/28hse_system/frontend/dist \
-             /tmp/data
+             /data
 
 # ---- 复制 28hse_system 静态配置数据 ----
 COPY 28hse_system/housing_types.json /app/28hse_system/

@@ -804,7 +804,7 @@ def main():
     # 示例：设置最早日期为2025-01-01，只分析该日期之后的数据
     # results = calculate_rent_sale_ratio(base_dir="./transaction_record_20260223_trans", min_date="2025-01-01")
     min_date = "2025-01-01"
-    results = calculate_rent_sale_ratio(base_dir="./transaction_record_20260329_trans", min_date=min_date)
+    results = calculate_rent_sale_ratio(base_dir="./transaction_record_20260411_trans", min_date=min_date)
     
     # 保存结果
     if results:

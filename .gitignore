@@ -1,0 +1,148 @@
+# ============================================================
+# 环境变量与密钥（绝对不能上传）
+# ============================================================
+.env
+.env.*
+!.env.example
+SecretKey*.csv
+
+# ============================================================
+# Python 缓存与编译文件
+# ============================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+
+# ============================================================
+# 虚拟环境
+# ============================================================
+.venv/
+venv/
+env/
+ENV/
+28hse_system/backend/venv/
+
+# ============================================================
+# 日志文件
+# ============================================================
+*.log
+access.log
+running.log
+
+# ============================================================
+# 大型数据文件（爬虫原始数据，体积过大）
+# ============================================================
+# 28hse 爬虫数据
+28hse_system/28hse/transaction_records_*/
+28hse_system/estate_dynamic/
+28hse_system/estate_dynamic_of_missed_house/
+28hse_system/transaction_records_of_missed_house/
+28hse_system/rent_sale_ratio_archive/
+
+# centanet 爬虫原始数据目录（带日期的交易记录目录）
+centanet_system/crawler/transaction_record_*/
+
+# ============================================================
+# 数据类 JSON 文件（爬虫原始数据 & 分析生成数据，不上传）
+# ============================================================
+
+# centanet 爬虫 & 分析数据
+centanet_system/crawler/estate_info_*.json
+centanet_system/crawler/average_rent_sale_ratio*.json
+centanet_system/crawler/dynamic_estate_data*.json
+centanet_system/crawler/monthly_price_trend*.json
+centanet_system/crawler/monthly_sales_volume*.json
+centanet_system/crawler/rental_summary*.json
+centanet_system/crawler/empty_estate.txt
+
+# 28hse 静态/动态房产数据
+28hse_system/estate_static_info.json
+28hse_system/estate_static_info_convert.json
+28hse_system/estates_mapping.json
+28hse_system/estates_mapping_detailed.json
+28hse_system/estates_mapping_detailed_old.json
+28hse_system/housing_types.json
+28hse_system/missing_records.json
+
+# 28hse 分析生成数据
+28hse_system/average_rent_sale_ratio*.json
+28hse_system/weekly_price_trends.json
+
+# estate_dynamic 目录下所有 JSON（爬取的动态数据）
+28hse_system/estate_dynamic_of_missed_house/
+
+# ============================================= ===============
+# 压缩包（原始数据备份）
+# ============================================================
+*.zip
+*.tar.gz
+*.tar.bz2
+*.rar
+*.7z
+
+# ============================================================
+# AI Agent 向量数据库（可重建）
+# ============================================================
+hk_property_agent/data/chroma_db/
+hk_property_agent/data/*.db
+hk_property_agent/data/*.sqlite
+hk_property_agent/data/*.sqlite3
+
+# ============================================================
+# Node.js 依赖（前端）
+# ============================================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+
+# 前端构建产物
+28hse_system/frontend/dist/
+
+# ============================================================
+# IDE 与编辑器配置
+# ============================================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ============================================================
+# 临时文件
+# ============================================================
+/tmp/
+*.tmp
+*.temp
+
+# ============================================================
+# Jupyter Notebook
+# ============================================================
+.ipynb_checkpoints/
+*.ipynb
+
+# ============================================================
+# 系统文件
+# ============================================================
+.DS_Store
+.AppleDouble
+.LSOverride
+desktop.ini

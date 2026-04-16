@@ -52,8 +52,8 @@ def transfer_data(input_file, output_file, type="buy"):
         json.dump(new_data, f, indent=1, ensure_ascii=False)
 
 if __name__ == "__main__":
-    input_path = "transaction_record_20260223/rent"
-    output_path = "transaction_record_20260223_trans/rent"
+    input_path = "transaction_record_20260411/rent"
+    output_path = "transaction_record_20260411_trans/rent"
     # 创建目标目录
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     # 遍历

@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from langchain_core.tools import tool
 from data.vector_store import get_vector_store
 from data.loader import get_loader
+from agent.tools.utils import to_traditional
 
 
 @tool
@@ -28,6 +29,7 @@ def semantic_search(query: str, top_k: int = 8) -> str:
         query: 用户自然语言查询描述
         top_k: 返回结果数量，默认 8，最大 15
     """
+    query = to_traditional(query)
     vs = get_vector_store()
     loader = get_loader()
 

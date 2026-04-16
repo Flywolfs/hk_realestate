@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from langchain_core.tools import tool
 from data.loader import get_loader
+from agent.tools.utils import to_traditional
 
 
 @tool
@@ -22,6 +23,7 @@ def get_price_trend(estate_name: str, months: int = 12) -> str:
         estate_name: 屋苑名称（中文或英文）
         months: 查询最近几个月，默认 12 个月，最大 36 个月
     """
+    estate_name = to_traditional(estate_name)
     loader = get_loader()
     months = min(36, max(1, months))
 

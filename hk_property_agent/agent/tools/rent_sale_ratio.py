@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from langchain_core.tools import tool
 from data.loader import get_loader
+from agent.tools.utils import to_traditional
 
 
 @tool
@@ -24,6 +25,7 @@ def get_rent_sale_ratio(estate_name: str) -> str:
     参数:
         estate_name: 屋苑名称（中文或英文）
     """
+    estate_name = to_traditional(estate_name)
     loader = get_loader()
 
     # 先找到屋苑 ID
