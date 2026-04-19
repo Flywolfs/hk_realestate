@@ -19,7 +19,7 @@ ALL_TOOLS = [
     get_rent_sale_ratio,
     get_price_trend,
     compare_estates,
-    semantic_search,
+    # semantic_search,
     filter_estates,
     get_area_stats,
     get_sales_volume,

@@ -203,7 +203,14 @@ class AgentDataLoader:
             if sub_area and sub_area != area:
                 self._area_index.setdefault(sub_area, []).append(estate_id)
 
-        print(f"[DataLoader] 索引构建完成: {len(self._name_to_id)} 条名称索引, {len(self._area_index)} 个地区")
+        # 公屋/居屋名称集合（用于默认过滤）
+        housing_types = self._data.get('housing_types', {})
+        gongwu_names = set(housing_types.get('gongwu', {}).get('names', []))
+        juwu_names = set(housing_types.get('juwu', {}).get('names', []))
+        self._gongwu_names = gongwu_names
+        self._juwu_names = juwu_names
+
+        print(f"[DataLoader] 索引构建完成: {len(self._name_to_id)} 条名称索引, {len(self._area_index)} 个地区, 公屋 {len(gongwu_names)} 个, 居屋 {len(juwu_names)} 个")
 
     def reload(self):
         """热更新：重新从 COS 下载并刷新内存数据（线程安全）。"""
@@ -252,6 +259,18 @@ class AgentDataLoader:
         with self._lock:
             raw = self._data.get('rental_summary', {})
             return raw.get('data', {}) if isinstance(raw, dict) and 'data' in raw else raw
+
+    @property
+    def gongwu_names(self) -> set:
+        """公屋名称集合"""
+        with self._lock:
+            return self._gongwu_names
+
+    @property
+    def juwu_names(self) -> set:
+        """居屋名称集合"""
+        with self._lock:
+            return self._juwu_names
 
     # ------------------------------------------------------------------
     # 结构化查询接口
@@ -467,15 +486,22 @@ class AgentDataLoader:
                        max_price: float = None, min_rent_ratio: float = None,
                        max_rent_ratio: float = None, min_area_size: float = None,
                        max_area_size: float = None, sort_by: str = 'rent_ratio',
-                       sort_order: str = 'desc', limit: int = 10) -> List[Dict]:
+                       sort_order: str = 'desc', limit: int = 10,
+                       include_public_housing: bool = False,
+                       include_hos: bool = False,
+                       min_rent: float = None, max_rent: float = None,
+                       min_building_age: float = None, max_building_age: float = None) -> List[Dict]:
         """
         按数值条件筛选屋苑。
         价格为尺价（港元/平方呎），租售比为百分比，面积为实用面积（平方呎）。
+        租金为平均月租（港元），楼龄为年数。
+        默认排除公屋和居屋，可通过 include_public_housing/include_hos 参数包含。
         """
         limit = min(30, max(1, limit))
         estate_static = self.estate_static
         rent_ratio_data = self.rent_ratio_data
         dynamic_data = self.dynamic_estate_data
+        rental_data = self.rental_summary_data
 
         # 确定候选屋苑范围
         if area:
@@ -486,10 +512,25 @@ class AgentDataLoader:
         else:
             candidate_ids = list(estate_static.keys())
 
+        # 公屋/居屋名称集合
+        with self._lock:
+            gongwu = self._gongwu_names
+            juwu = self._juwu_names
+
+        current_year = 2026
+
         results = []
         for eid in candidate_ids:
             info = estate_static.get(eid, {})
             dynamic = dynamic_data.get(eid, {})
+
+            name = info.get('name', '')
+
+            # 默认排除公屋/居屋
+            if not include_public_housing and name in gongwu:
+                continue
+            if not include_hos and name in juwu:
+                continue
 
             price = dynamic.get('current_price_per_sqft')
             min_a = dynamic.get('min_area')
@@ -505,6 +546,22 @@ class AgentDataLoader:
             elif isinstance(rent_data, (int, float)):
                 ratio = rent_data
 
+            # 获取租金
+            rental_info = rental_data.get(eid, {})
+            avg_rent = rental_info.get('avg_rent') if isinstance(rental_info, dict) else None
+            rent_per_sqft = rental_info.get('rent_per_sqft') if isinstance(rental_info, dict) else None
+
+            # 计算楼龄
+            establish_year = info.get('establish_year') or info.get('basic_info', {}).get('establish_year')
+            # 如果 establish_year 是字符串（如 "1987年"），提取数字部分
+            if isinstance(establish_year, str):
+                import re
+                m = re.search(r'\d+', establish_year)
+                establish_year = int(m.group()) if m else None
+            building_age = None
+            if isinstance(establish_year, (int, float)) and establish_year:
+                building_age = current_year - int(establish_year)
+
             # 应用筛选条件
             if min_price is not None and (price is None or price < min_price):
                 continue
@@ -518,16 +575,28 @@ class AgentDataLoader:
                 continue
             if max_area_size is not None and (max_a is None or max_a > max_area_size):
                 continue
+            if min_rent is not None and (avg_rent is None or avg_rent < min_rent):
+                continue
+            if max_rent is not None and (avg_rent is None or avg_rent > max_rent):
+                continue
+            if min_building_age is not None and (building_age is None or building_age < min_building_age):
+                continue
+            if max_building_age is not None and (building_age is None or building_age > max_building_age):
+                continue
 
             results.append({
                 'id': eid,
-                'name': info.get('name', ''),
+                'name': name,
                 'area': info.get('area', '') or info.get('district', ''),
                 'sub_area': info.get('sub_area', ''),
                 'current_price_per_sqft': price,
                 'rent_ratio_latest': ratio,
                 'min_area': min_a,
                 'max_area': max_a,
+                'avg_rent': avg_rent,
+                'rent_per_sqft': rent_per_sqft,
+                'building_age': building_age,
+                'establish_year': establish_year if isinstance(establish_year, (int, float)) else None,
             })
 
         # 排序
@@ -535,6 +604,8 @@ class AgentDataLoader:
             'rent_ratio': 'rent_ratio_latest',
             'price': 'current_price_per_sqft',
             'area_size': 'max_area',
+            'rent': 'avg_rent',
+            'building_age': 'building_age',
         }
         key_field = sort_key_map.get(sort_by, 'rent_ratio_latest')
         reverse = sort_order != 'asc'
