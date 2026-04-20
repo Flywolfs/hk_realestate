@@ -224,6 +224,44 @@ function setCloudConfig(config) {
   console.log('云托管配置已更新:', CLOUD_CONFIG)
 }
 
+/**
+ * Agent服务相关API
+ */
+
+/**
+ * 发送消息到Agent
+ * @param {string} message - 用户消息
+ * @returns {Promise} 包含task_id的响应
+ */
+function sendAgentMessage(message) {
+  return request('/agent/chat', 'POST', { message })
+}
+
+/**
+ * 获取Agent任务结果
+ * @param {string} taskId - 任务ID
+ * @returns {Promise} 任务结果
+ */
+function getAgentResult(taskId) {
+  return request(`/agent/chat/result?task_id=${taskId}`, 'GET')
+}
+
+/**
+ * 清除Agent对话历史
+ * @returns {Promise} 响应结果
+ */
+function clearAgentHistory() {
+  return request('/agent/clear', 'POST')
+}
+
+/**
+ * 获取Agent服务健康状态
+ * @returns {Promise} 健康状态
+ */
+function getAgentHealth() {
+  return request('/agent/health', 'GET')
+}
+
 module.exports = {
   // 云调用初始化
   initCloud,
@@ -240,5 +278,10 @@ module.exports = {
   logout,
   getToken,
   // 带认证的请求（云调用模式下与普通请求相同）
-  requestWithAuth: (url, method = 'GET', data = {}) => request(url, method, data, true)
+  requestWithAuth: (url, method = 'GET', data = {}) => request(url, method, data, true),
+  // Agent服务API
+  sendAgentMessage,
+  getAgentResult,
+  clearAgentHistory,
+  getAgentHealth
 }

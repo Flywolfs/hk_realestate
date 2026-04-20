@@ -951,5 +951,12 @@ Page({
     // 记录今天已提示，今天不再显示
     wx.setStorageSync('last_login_prompt_date', new Date().toDateString())
     this.setData({ showLoginModal: false })
+  },
+
+  // 打开港房通AI对话
+  openChat() {
+    wx.navigateTo({
+      url: '/pages/chat/chat'
+    })
   }
 })

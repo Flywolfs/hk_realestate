@@ -40,6 +40,9 @@
       <cover-view class="control-btn locate-btn" bindtap="relocate">
         <cover-view class="btn-text">重置</cover-view>
       </cover-view>
+      <cover-view class="control-btn chat-btn" bindtap="openChat">
+        <cover-view class="btn-text">港房通</cover-view>
+      </cover-view>
     </cover-view>
     
     <!-- 房屋类型筛选按钮 -->

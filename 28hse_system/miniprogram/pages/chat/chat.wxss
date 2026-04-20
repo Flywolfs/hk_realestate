@@ -1,0 +1,287 @@
+/* pages/chat/chat.wxss - 港房通AI对话页面样式 */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background-color: #f5f5f5;
+}
+
+/* 消息列表 */
+.message-list {
+  flex: 1;
+  padding: 20rpx;
+  box-sizing: border-box;
+}
+
+/* 消息项 */
+.message-item {
+  display: flex;
+  margin-bottom: 30rpx;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10rpx);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 系统消息 */
+.system-message {
+  justify-content: center;
+}
+
+.system-message .message-content {
+  background-color: #e8f5e9;
+  border: 1rpx solid #c8e6c9;
+  max-width: 90%;
+}
+
+/* 用户消息 */
+.user-message {
+  justify-content: flex-end;
+}
+
+.user-message .message-content {
+  background-color: #4CAF50;
+  color: white;
+  margin-left: 100rpx;
+}
+
+/* AI消息 */
+.ai-message {
+  justify-content: flex-start;
+}
+
+.ai-message .message-content {
+  background-color: white;
+  color: #333;
+  margin-right: 100rpx;
+  border: 1rpx solid #e0e0e0;
+}
+
+/* 头像 */
+.avatar {
+  width: 70rpx;
+  height: 70rpx;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 20rpx;
+  flex-shrink: 0;
+}
+
+.avatar-text {
+  color: white;
+  font-size: 24rpx;
+  font-weight: bold;
+}
+
+/* 消息内容 */
+.message-content {
+  max-width: 70%;
+  padding: 20rpx 24rpx;
+  border-radius: 16rpx;
+  word-wrap: break-word;
+}
+
+.message-text {
+  font-size: 30rpx;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+/* Markdown样式 */
+.markdown-body {
+  font-size: 30rpx;
+  line-height: 1.6;
+}
+
+.markdown-body .h1, .markdown-body .h2, .markdown-body .h3 {
+  font-weight: bold;
+  margin: 16rpx 0;
+}
+
+.markdown-body .h1 {
+  font-size: 36rpx;
+}
+
+.markdown-body .h2 {
+  font-size: 34rpx;
+}
+
+.markdown-body .h3 {
+  font-size: 32rpx;
+}
+
+.markdown-body .p {
+  margin: 12rpx 0;
+}
+
+.markdown-body .strong {
+  font-weight: bold;
+  color: #4CAF50;
+}
+
+.markdown-body .em {
+  font-style: italic;
+}
+
+.markdown-body .code {
+  background-color: #f5f5f5;
+  padding: 4rpx 8rpx;
+  border-radius: 6rpx;
+  font-family: monospace;
+  font-size: 26rpx;
+}
+
+.markdown-body .pre {
+  background-color: #f5f5f5;
+  padding: 20rpx;
+  border-radius: 8rpx;
+  overflow-x: auto;
+  margin: 16rpx 0;
+}
+
+.markdown-body .ul, .markdown-body .ol {
+  margin: 16rpx 0;
+  padding-left: 40rpx;
+}
+
+.markdown-body .li {
+  margin: 8rpx 0;
+}
+
+.markdown-body .a {
+  color: #4CAF50;
+  text-decoration: underline;
+}
+
+/* 可点击的屋苑名称 */
+.estate-link {
+  color: #4CAF50;
+  text-decoration: underline;
+  font-weight: 500;
+}
+
+/* 工具信息 */
+.tools-info {
+  margin-top: 16rpx;
+  padding-top: 16rpx;
+  border-top: 1rpx solid #e0e0e0;
+}
+
+.tools-text {
+  font-size: 24rpx;
+  color: #999;
+}
+
+/* 加载状态 */
+.loading .message-content {
+  display: flex;
+  align-items: center;
+  min-width: 120rpx;
+}
+
+.loading-dots {
+  display: flex;
+  align-items: center;
+}
+
+.dot {
+  font-size: 40rpx;
+  color: #999;
+  animation: bounce 1.4s infinite ease-in-out both;
+  margin: 0 4rpx;
+}
+
+.dot:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.dot:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+@keyframes bounce {
+  0%, 80%, 100% {
+    transform: scale(0);
+  }
+  40% {
+    transform: scale(1);
+  }
+}
+
+.status-text {
+  font-size: 24rpx;
+  color: #999;
+  margin-left: 20rpx;
+}
+
+/* 输入区域 */
+.input-area {
+  background-color: white;
+  padding: 20rpx 30rpx;
+  padding-bottom: calc(20rpx + env(safe-area-inset-bottom));
+  border-top: 1rpx solid #e0e0e0;
+}
+
+.input-wrapper {
+  display: flex;
+  align-items: center;
+  background-color: #f5f5f5;
+  border-radius: 40rpx;
+  padding: 10rpx 10rpx 10rpx 30rpx;
+}
+
+.message-input {
+  flex: 1;
+  height: 70rpx;
+  font-size: 30rpx;
+  color: #333;
+}
+
+.message-input::placeholder {
+  color: #999;
+}
+
+.send-btn {
+  width: 100rpx;
+  height: 60rpx;
+  background-color: #ccc;
+  border-radius: 30rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 16rpx;
+  transition: all 0.3s ease;
+}
+
+.send-btn.active {
+  background-color: #4CAF50;
+}
+
+.send-btn[disabled] {
+  background-color: #e0e0e0;
+}
+
+.send-icon {
+  color: white;
+  font-size: 26rpx;
+}
+
+.input-hint {
+  display: block;
+  text-align: center;
+  font-size: 22rpx;
+  color: #999;
+  margin-top: 16rpx;
+}

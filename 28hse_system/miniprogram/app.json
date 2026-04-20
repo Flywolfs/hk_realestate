@@ -2,7 +2,8 @@
   "pages": [
     "pages/index/index",
     "pages/search/search",
-    "pages/estate-detail/estate-detail"
+    "pages/estate-detail/estate-detail",
+    "pages/chat/chat"
   ],
   "window": {
     "backgroundTextStyle": "light",
