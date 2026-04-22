@@ -80,18 +80,33 @@ def extract_user_from_headers(headers: dict) -> dict | None:
     :param headers: HTTP 请求头字典（key 大小写不敏感需调用方处理）
     :return: 用户信息字典或 None
     """
-    # 云托管云调用模式
-    openid = headers.get('X-WX-FROM-OPENID') or headers.get('x-wx-from-openid')
+    # 统一转小写便于匹配（HTTP header key 大小写不敏感）
+    lower_headers = {k.lower(): v for k, v in headers.items()}
+
+    # 1. 小程序端 callContainer 模式（微信云托管自动注入）
+    # 请求头: x-wx-openid, x-wx-unionid, x-wx-appid
+    openid = lower_headers.get('x-wx-openid')
     if openid:
         return {
             'openid': openid,
-            'unionid': headers.get('X-WX-FROM-UNIONID', '') or headers.get('x-wx-from-unionid', ''),
-            'appid': headers.get('X-WX-FROM-APPID', '') or headers.get('x-wx-from-appid', ''),
+            'unionid': lower_headers.get('x-wx-unionid', ''),
+            'appid': lower_headers.get('x-wx-appid', ''),
+            'source': 'call_container',
+        }
+
+    # 2. 云函数云调用模式（云函数调用服务时）
+    # 请求头: x-wx-from-openid, x-wx-from-unionid, x-wx-from-appid
+    openid = lower_headers.get('x-wx-from-openid')
+    if openid:
+        return {
+            'openid': openid,
+            'unionid': lower_headers.get('x-wx-from-unionid', ''),
+            'appid': lower_headers.get('x-wx-from-appid', ''),
             'source': 'cloud_call',
         }
 
-    # JWT Token 模式
-    auth_header = headers.get('Authorization', '') or headers.get('authorization', '')
+    # 3. JWT Token 模式（本地测试 / HTTP域名模式）
+    auth_header = lower_headers.get('authorization', '')
     if auth_header.startswith('Bearer '):
         token = auth_header[7:]
         payload = verify_token(token)
