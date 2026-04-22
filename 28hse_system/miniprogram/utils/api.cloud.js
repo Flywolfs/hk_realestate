@@ -5,9 +5,11 @@
  */
 
 // 云托管配置
+// 双服务架构：数据服务(app) + Agent服务(agent)
 const CLOUD_CONFIG = {
   env: 'prod-xxx', // 微信云托管环境ID，请替换为实际环境ID
-  service: 'yyy' // 微信云托管服务名称，请替换为实际服务名
+  dataService: 'app', // 数据服务（estates、rent-ratios、search等）
+  agentService: 'agent' // Agent服务（chat、health等）
 }
 
 // 云调用实例
@@ -49,6 +51,16 @@ function initCloud() {
  * @param {boolean} requireAuth - 是否需要登录（云调用模式下此参数忽略，始终携带身份）
  * @returns {Promise} Promise对象
  */
+/**
+ * 根据请求路径获取对应的服务名称
+ * /agent/* 路径走 agentService，其他走 dataService
+ * @param {string} path - 请求路径
+ * @returns {string} 服务名称
+ */
+function getServiceName(path) {
+  return path.startsWith('/agent/') ? CLOUD_CONFIG.agentService : CLOUD_CONFIG.dataService
+}
+
 function request(path, method = 'GET', data = {}, requireAuth = false) {
   return new Promise((resolve, reject) => {
     // 确保云调用已初始化
@@ -57,6 +69,9 @@ function request(path, method = 'GET', data = {}, requireAuth = false) {
       return
     }
 
+    // 根据路径自动判断服务
+    const serviceName = getServiceName(path)
+
     const options = {
       config: {
         env: CLOUD_CONFIG.env
@@ -64,14 +79,14 @@ function request(path, method = 'GET', data = {}, requireAuth = false) {
       path: `/api${path}`, // 添加 /api 前缀
       method: method,
       header: {
-        'X-WX-SERVICE': CLOUD_CONFIG.service,
+        'X-WX-SERVICE': serviceName,
         'Content-Type': 'application/json'
       },
       data: data
     }
 
     // 打印请求日志（便于调试）
-    console.log(`[CloudRequest] ${method} ${path}`, { env: CLOUD_CONFIG.env, service: CLOUD_CONFIG.service })
+    console.log(`[CloudRequest] ${method} ${path}`, { env: CLOUD_CONFIG.env, service: serviceName })
     
     cloudInstance.callContainer(options)
       .then(res => {
@@ -220,7 +235,13 @@ function getPrimarySchools() {
  */
 function setCloudConfig(config) {
   if (config.env) CLOUD_CONFIG.env = config.env
-  if (config.service) CLOUD_CONFIG.service = config.service
+  if (config.dataService) CLOUD_CONFIG.dataService = config.dataService
+  if (config.agentService) CLOUD_CONFIG.agentService = config.agentService
+  // 兼容旧配置
+  if (config.service) {
+    console.warn('[CloudConfig] service 配置已废弃，请使用 dataService / agentService')
+    CLOUD_CONFIG.dataService = config.service
+  }
   console.log('云托管配置已更新:', CLOUD_CONFIG)
 }
 

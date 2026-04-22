@@ -4,9 +4,16 @@
  * 当云调用服务不可用时，可通过购买域名并配置服务器域名继续使用
  */
 
+// 双服务架构：数据服务(app) + Agent服务(agent)
 // 获取API基础URL
 const app = getApp()
-const BASE_URL = 'https://hkrealestate-230834-6-1409178104.sh.run.tcloudbase.com/api'  // 开发环境,上线前需替换为HTTPS域名
+
+// 数据服务基础URL（estates、rent-ratios、search等）
+const DATA_BASE_URL = 'https://hkrealestate-230834-6-1409178104.sh.run.tcloudbase.com/api'
+
+// Agent服务基础URL（chat、health等）
+// 注意：如果Agent服务与数据服务使用相同域名（通过路径区分），则与DATA_BASE_URL相同
+const AGENT_BASE_URL = 'https://hkrealestate-230834-6-1409178104.sh.run.tcloudbase.com/api'
 
 // Token存储键名
 const TOKEN_KEY = 'auth_token'
@@ -35,6 +42,16 @@ function clearToken() {
 }
 
 /**
+ * 根据请求路径获取对应的基础URL
+ * /agent/* 路径走 Agent服务，其他走数据服务
+ * @param {string} url - 请求路径
+ * @returns {string} 基础URL
+ */
+function getBaseUrl(url) {
+  return url.startsWith('/agent/') ? AGENT_BASE_URL : DATA_BASE_URL
+}
+
+/**
  * 封装wx.request
  * @param {string} url - 请求路径
  * @param {string} method - 请求方法
@@ -56,8 +73,11 @@ function request(url, method = 'GET', data = {}, requireAuth = false) {
       }
     }
     
+    // 根据路径自动判断服务
+    const baseUrl = getBaseUrl(url)
+    
     wx.request({
-      url: `${BASE_URL}${url}`,
+      url: `${baseUrl}${url}`,
       method: method,
       data: data,
       header: header,

@@ -9,9 +9,11 @@ const USE_CLOUD_MODE = true
 
 // 云调用配置（仅在 USE_CLOUD_MODE = true 时有效）
 // 注意：这里的配置需要与 utils/api.cloud.js 中的 CLOUD_CONFIG 保持一致
+// 双服务架构：数据服务(app) + Agent服务(agent)
 const CLOUD_CONFIG = {
   env: 'prod-xxx',  // 微信云托管环境ID
-  service: 'yyy'         // 微信云托管服务名称
+  dataService: 'app',  // 数据服务名称（estates、rent-ratios、search等）
+  agentService: 'agent' // Agent服务名称（chat、health等）
 }
 
 // 动态加载 API 模块
