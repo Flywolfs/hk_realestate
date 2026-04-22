@@ -42,7 +42,7 @@ CORS(app, origins=['*'], supports_credentials=True,
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
+    format='%(asctime)s [%(levelname)s] %(filename)s:%(lineno)d %(message)s',
 )
 logger = logging.getLogger(__name__)
 logging.getLogger('werkzeug').setLevel(logging.WARNING)
@@ -127,10 +127,12 @@ def chat():
         return jsonify({'success': True, 'reply': safe_reason, 'session_id': session_id})
 
     logger.info(f"[Chat] session={session_id[:12]}... msg_len={len(message)}")
+    logger.info(f"[Chat] User message: {message}")
 
     try:
         agent = get_agent()
         reply, _ = agent.chat(message, session_id)
+        logger.info(f"[Chat] LLM reply: {reply}")
     except Exception as e:
         logger.error(f"[Chat] Agent 异常: {e}", exc_info=True)
         return jsonify({

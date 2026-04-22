@@ -57,7 +57,7 @@ app.add_middleware(
 
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
+    format='%(asctime)s [%(levelname)s] %(filename)s:%(lineno)d %(message)s',
 )
 logger = logging.getLogger(__name__)
 
@@ -98,6 +98,7 @@ async def _run_agent_task(task_id: str, message: str, session_id: str):
             elif event.get('type') == 'done':
                 break
         task['status'] = 'done'
+        logger.info(f"[Task] {task_id} LLM reply: {task['partial_reply']}")
     except Exception as e:
         logger.error(f"[Task] {task_id} 异常: {e}", exc_info=True)
         task['status'] = 'error'
@@ -207,12 +208,14 @@ async def chat(
         return {'success': True, 'reply': safe_reason, 'session_id': session_id}
 
     logger.info(f"[Chat] session={session_id[:12]}... msg_len={len(message)} sync={sync}")
+    logger.info(f"[Chat] User message: {message}")
 
     # --- 同步模式 ---
     if sync:
         try:
             agent = get_agent()
             reply, tools_used = await agent.achat(message, session_id)
+            logger.info(f"[Chat] LLM reply: {reply}")
         except Exception as e:
             logger.error(f"[Chat] Agent 异常: {e}", exc_info=True)
             return JSONResponse(
@@ -296,16 +299,23 @@ async def chat_stream(body: ChatRequest, user: dict = Depends(get_current_user))
         return StreamingResponse(reject_gen(), media_type="text/plain; charset=utf-8")
 
     logger.info(f"[Stream] session={session_id[:12]}... msg_len={len(message)}")
+    logger.info(f"[Stream] User message: {message}")
 
     async def event_generator():
+        full_reply = ""
         try:
             agent = get_agent()
             async for event in agent.astream_chat(message, session_id):
+                if event.get('type') == 'token':
+                    full_reply += event.get('text', '')
                 yield json.dumps(event, ensure_ascii=False) + "\n"
         except Exception as e:
             logger.error(f"[Stream] 异常: {e}", exc_info=True)
             yield json.dumps({"type": "token", "text": f"服务异常：{str(e)[:200]}"}, ensure_ascii=False) + "\n"
             yield json.dumps({"type": "done", "text": ""}) + "\n"
+        finally:
+            if full_reply:
+                logger.info(f"[Stream] LLM full reply: {full_reply}")
 
     return StreamingResponse(
         event_generator(),
