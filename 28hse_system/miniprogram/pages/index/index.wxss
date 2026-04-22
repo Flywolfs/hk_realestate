@@ -72,12 +72,27 @@
 
 /* 港房通AI按钮 */
 .chat-btn {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  position: relative;
+  background-color: #fff;
+  box-shadow: 0 4rpx 16rpx rgba(102, 126, 234, 0.35);
 }
 
 .chat-btn .btn-text {
-  color: #fff;
+  color: #5b6abf;
   font-weight: 600;
+}
+
+/* DeepSeek角标 - 搭在港房通按钮右下角，溢出按钮范围 */
+.deepseek-badge {
+  position: fixed;
+  z-index: 999;
+  width: 40rpx;
+  height: 40rpx;
+}
+
+.deepseek-badge-img {
+  width: 100%;
+  height: 100%;
 }
 
 /* 房屋类型筛选按钮 */

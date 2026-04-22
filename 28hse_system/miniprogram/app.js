@@ -11,9 +11,9 @@ const USE_CLOUD_MODE = true
 // 注意：这里的配置需要与 utils/api.cloud.js 中的 CLOUD_CONFIG 保持一致
 // 双服务架构：数据服务(app) + Agent服务(agent)
 const CLOUD_CONFIG = {
-  env: 'prod-xxx',  // 微信云托管环境ID
-  dataService: 'app',  // 数据服务名称（estates、rent-ratios、search等）
-  agentService: 'agent' // Agent服务名称（chat、health等）
+  env: 'prod-9grpyjs2a696901c',  // 微信云托管环境ID
+  dataService: 'hkrealestate',  // 数据服务名称（estates、rent-ratios、search等）
+  agentService: 'hk-property-agent' // Agent服务名称（chat、health等）
 }
 
 // 动态加载 API 模块
@@ -25,7 +25,7 @@ App({
   globalData: {
     // 全局数据,用于页面间传递信息
     locateEstate: null,  // 从详情页返回时定位到的小区信息
-    apiBaseUrl: 'https://xxx',  // HTTP模式下的API基础URL
+    apiBaseUrl: 'https://hkrealestate-230834-6-1409178104.sh.run.tcloudbase.com/api',  // HTTP模式下的API基础URL
     userInfo: null,
     isLoggedIn: false,  // 登录状态
     useCloudMode: USE_CLOUD_MODE,  // 当前使用的模式

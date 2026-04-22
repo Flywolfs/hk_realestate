@@ -41,26 +41,30 @@
         <cover-view class="btn-text">重置</cover-view>
       </cover-view>
       <cover-view class="control-btn chat-btn" bindtap="openChat">
-        <cover-view class="btn-text">港房通</cover-view>
+        <cover-view class="btn-text">港房通AI</cover-view>
       </cover-view>
     </cover-view>
+    
+    <!-- DeepSeek角标，独立于map-controls，使用view而非cover-view以支持溢出 -->
     
     <!-- 房屋类型筛选按钮 -->
     <cover-view class="housing-filter-container">
       <cover-view class="housing-filter-btn {{housingTypeFilter.showPublic ? 'active' : ''}}" bindtap="togglePublic">
-        <cover-view class="filter-dot public-dot"></cover-view>
         <cover-view class="filter-text">公屋</cover-view>
       </cover-view>
       <cover-view class="housing-filter-btn {{housingTypeFilter.showSubsidized ? 'active' : ''}}" bindtap="toggleSubsidized">
-        <cover-view class="filter-dot subsidized-dot"></cover-view>
         <cover-view class="filter-text">居屋</cover-view>
       </cover-view>
       <cover-view class="housing-filter-btn {{housingTypeFilter.showPrivate ? 'active' : ''}}" bindtap="togglePrivate">
-        <cover-view class="filter-dot private-dot"></cover-view>
         <cover-view class="filter-text">私人</cover-view>
       </cover-view>
     </cover-view>
   </map>
+
+  <!-- DeepSeek角标 - 普通view覆盖在地图上方，不受cover-view裁切限制 -->
+  <view class="deepseek-badge" bindtap="openChat" style="top: {{deepseekBadgeTop}}px; right: {{deepseekBadgeRight}}px;">
+    <image class="deepseek-badge-img" src="/images/deepseek.png" mode="aspectFit"></image>
+  </view>
 
   <!-- 小区信息卡片 -->
   <view class="estate-card" wx:if="{{showEstateCard}}" bindtap="closeEstateCard">

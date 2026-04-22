@@ -7,9 +7,9 @@
 // 云托管配置
 // 双服务架构：数据服务(app) + Agent服务(agent)
 const CLOUD_CONFIG = {
-  env: 'prod-xxx', // 微信云托管环境ID，请替换为实际环境ID
-  dataService: 'app', // 数据服务（estates、rent-ratios、search等）
-  agentService: 'agent' // Agent服务（chat、health等）
+  env: 'prod-9grpyjs2a696901c', // 微信云托管环境ID，请替换为实际环境ID
+  dataService: 'hkrealestate', // 数据服务（estates、rent-ratios、search等）
+  agentService: 'hk-property-agent' // Agent服务（chat、health等）
 }
 
 // 云调用实例
