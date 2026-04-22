@@ -70,14 +70,11 @@
 .avatar {
   width: 70rpx;
   height: 70rpx;
-  border-radius: 50%;
-  background-color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
   margin-right: 20rpx;
   flex-shrink: 0;
-  overflow: hidden;
 }
 
 .avatar-text {
@@ -87,9 +84,8 @@
 }
 
 .avatar-img {
-  width: 50rpx;
-  height: 50rpx;
-  border-radius: 50%;
+  width: 64rpx;
+  height: 64rpx;
 }
 
 /* 消息内容 */
@@ -258,31 +254,6 @@
 
 .message-input::placeholder {
   color: #999;
-}
-
-.send-btn {
-  width: 100rpx;
-  height: 60rpx;
-  background-color: #ccc;
-  border-radius: 30rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-left: 16rpx;
-  transition: all 0.3s ease;
-}
-
-.send-btn.active {
-  background-color: #4CAF50;
-}
-
-.send-btn[disabled] {
-  background-color: #e0e0e0;
-}
-
-.send-icon {
-  color: white;
-  font-size: 26rpx;
 }
 
 .input-hint {
