@@ -4,7 +4,8 @@
  */
 
 /**
- * 解析markdown为HTML
+ * 解析markdown为HTML（rich-text兼容版）
+ * 使用标准HTML标签，避免小程序组件标签（view/text）
  * @param {string} markdown - markdown文本
  * @returns {string} HTML字符串
  */
@@ -17,32 +18,32 @@ function parseMarkdown(markdown) {
   html = escapeHtml(html)
   
   // 解析代码块 (```code```)
-  html = html.replace(/```([\s\S]*?)```/g, '<view class="pre"><text class="code">$1</text></view>')
+  html = html.replace(/```([\s\S]*?)```/g, '<div style="background:#f5f5f5;padding:20rpx;border-radius:8rpx;margin:16rpx 0;overflow-x:auto;"><code style="font-family:monospace;font-size:26rpx;">$1</code></div>')
   
   // 解析行内代码 (`code`)
-  html = html.replace(/`([^`]+)`/g, '<text class="code">$1</text>')
+  html = html.replace(/`([^`]+)`/g, '<code style="background:#f5f5f5;padding:4rpx 8rpx;border-radius:6rpx;font-family:monospace;font-size:26rpx;">$1</code>')
   
   // 解析标题
-  html = html.replace(/^### (.*$)/gim, '<view class="h3">$1</view>')
-  html = html.replace(/^## (.*$)/gim, '<view class="h2">$1</view>')
-  html = html.replace(/^# (.*$)/gim, '<view class="h1">$1</view>')
+  html = html.replace(/^### (.*$)/gim, '<div style="font-weight:bold;font-size:32rpx;margin:16rpx 0;">$1</div>')
+  html = html.replace(/^## (.*$)/gim, '<div style="font-weight:bold;font-size:34rpx;margin:16rpx 0;">$1</div>')
+  html = html.replace(/^# (.*$)/gim, '<div style="font-weight:bold;font-size:36rpx;margin:16rpx 0;">$1</div>')
   
   // 解析粗体 (**text**)
-  html = html.replace(/\*\*(.*?)\*\*/g, '<text class="strong">$1</text>')
+  html = html.replace(/\*\*(.*?)\*\*/g, '<strong style="color:#4CAF50;">$1</strong>')
   
   // 解析斜体 (*text*)
-  html = html.replace(/\*(.*?)\*/g, '<text class="em">$1</text>')
+  html = html.replace(/\*(.*?)\*/g, '<em>$1</em>')
   
   // 解析删除线 (~~text~~)
-  html = html.replace(/~~(.*?)~~/g, '<text style="text-decoration: line-through;">$1</text>')
+  html = html.replace(/~~(.*?)~~/g, '<span style="text-decoration:line-through;">$1</span>')
   
   // 解析链接 [text](url)
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<text class="a" data-url="$2">$1</text>')
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" style="color:#4CAF50;text-decoration:underline;">$1</a>')
   
   // 解析无序列表
   html = html.replace(/^(\s*)[-*+] (.*$)/gim, (match, indent, content) => {
     const level = Math.floor(indent.length / 2)
-    return `<view class="li" style="padding-left: ${level * 40}rpx;">• ${content}</view>`
+    return `<div style="padding-left:${40 + level * 40}rpx;margin:8rpx 0;">• ${content}</div>`
   })
   
   // 解析有序列表
@@ -50,14 +51,14 @@ function parseMarkdown(markdown) {
   html = html.replace(/^(\s*)\d+\. (.*$)/gim, (match, indent, content) => {
     const level = Math.floor(indent.length / 2)
     orderIndex++
-    return `<view class="li" style="padding-left: ${level * 40}rpx;">${orderIndex}. ${content}</view>`
+    return `<div style="padding-left:${40 + level * 40}rpx;margin:8rpx 0;">${orderIndex}. ${content}</div>`
   })
   
   // 解析引用 (> text)
-  html = html.replace(/^> (.*$)/gim, '<view style="border-left: 6rpx solid #4CAF50; padding-left: 20rpx; color: #666; margin: 16rpx 0;">$1</view>')
+  html = html.replace(/^> (.*$)/gim, '<div style="border-left:6rpx solid #4CAF50;padding-left:20rpx;color:#666;margin:16rpx 0;">$1</div>')
   
   // 解析水平线
-  html = html.replace(/^---$/gim, '<view style="border-top: 2rpx solid #e0e0e0; margin: 30rpx 0;"></view>')
+  html = html.replace(/^---$/gim, '<hr style="border:none;border-top:2rpx solid #e0e0e0;margin:30rpx 0;"/>')
   
   // 解析换行（保留段落结构）
   const paragraphs = html.split('\n\n')
@@ -65,12 +66,12 @@ function parseMarkdown(markdown) {
     p = p.trim()
     if (!p) return ''
     // 如果已经是块级元素，不再包裹
-    if (p.startsWith('<view') || p.startsWith('<text')) {
+    if (p.startsWith('<div') || p.startsWith('<hr') || p.startsWith('<code')) {
       return p
     }
     // 将单个换行转为<br/>
-    p = p.replace(/\n/g, '<text>\n</text>')
-    return `<view class="p">${p}</view>`
+    p = p.replace(/\n/g, '<br/>')
+    return `<div style="margin:12rpx 0;">${p}</div>`
   }).join('')
   
   return html

@@ -85,6 +85,12 @@
   font-weight: bold;
 }
 
+.avatar-img {
+  width: 50rpx;
+  height: 50rpx;
+  border-radius: 50%;
+}
+
 /* 消息内容 */
 .message-content {
   max-width: 70%;

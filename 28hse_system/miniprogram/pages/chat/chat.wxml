@@ -37,7 +37,7 @@
       <!-- AI消息 -->
       <view class="message-item ai-message" id="msg-{{item.id}}" wx:if="{{item.role === 'assistant'}}">
         <view class="avatar">
-          <text class="avatar-text">AI</text>
+          <image class="avatar-img" src="/images/logo.png" mode="aspectFit"></image>
         </view>
         <view class="message-content">
           <!-- 使用rich-text渲染markdown -->
@@ -54,7 +54,7 @@
     <!-- 加载中状态 -->
     <view class="message-item ai-message loading" wx:if="{{isLoading}}">
       <view class="avatar">
-        <text class="avatar-text">AI</text>
+        <image class="avatar-img" src="/images/logo.png" mode="aspectFit"></image>
       </view>
       <view class="message-content">
         <view class="loading-dots">

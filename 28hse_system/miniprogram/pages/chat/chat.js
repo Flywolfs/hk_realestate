@@ -214,7 +214,7 @@ Page({
       id: Date.now().toString(),
       role: 'assistant',
       content: errorText,
-      renderedContent: `<text class="message-text" style="color: #f44336;">${errorText}</text>`,
+      renderedContent: `<span style="color:#f44336;">${errorText}</span>`,
       isError: true
     }
 
@@ -237,7 +237,7 @@ Page({
     estateNames.forEach(name => {
       // 使用正则替换，但避免重复替换
       const regex = new RegExp(`(${this.escapeRegExp(name)})(?![^<]*>|[^<>]*</)`, 'g')
-      html = html.replace(regex, `<text class="estate-link" data-name="$1">$1</text>`)
+      html = html.replace(regex, `<span style="color:#4CAF50;text-decoration:underline;font-weight:500;">$1</span>`)
     })
     
     return html
