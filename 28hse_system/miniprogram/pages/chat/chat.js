@@ -13,7 +13,8 @@ Page({
     statusText: '',
     scrollToMessage: '',
     currentTaskId: null,
-    pollingTimer: null
+    pollingTimer: null,
+    streamingMessageId: null // 当前流式传输的消息ID
   },
 
   onLoad(options) {
@@ -118,12 +119,12 @@ Page({
     }
   },
 
-  // 开始轮询任务结果
+  // 开始轮询任务结果（流式更新）
   startPolling(taskId) {
     this.clearPolling()
     
     let retryCount = 0
-    const maxRetries = 60 // 最多轮询60次（约1分钟）
+    const maxRetries = 120 // 最多轮询120次（约2分钟）
     
     const poll = async () => {
       try {
@@ -141,15 +142,20 @@ Page({
         }
 
         if (status === 'done') {
-          // 任务完成，添加AI回复
-          this.addAIResponse(partial_reply, tools_used)
+          // 任务完成，最终更新AI回复
+          this.updateOrAddAIResponse(partial_reply, tools_used, true)
           this.clearPolling()
         } else if (status === 'error') {
           // 任务出错
           this.addErrorMessage('生成回复时出错，请重试')
           this.clearPolling()
         } else {
-          // 仍在处理中，继续轮询
+          // 仍在处理中，实时更新流式内容
+          if (partial_reply && partial_reply.trim()) {
+            this.updateOrAddAIResponse(partial_reply, tools_used, false)
+          }
+          
+          // 继续轮询
           retryCount++
           if (retryCount < maxRetries) {
             const timer = setTimeout(poll, 1000)
@@ -176,17 +182,63 @@ Page({
     poll()
   },
 
+  // 更新或添加AI回复（流式显示）
+  updateOrAddAIResponse(content, toolsUsed = [], isFinal = false) {
+    const { messages, streamingMessageId } = this.data
+    const renderedContent = this.renderMarkdown(content)
+    
+    if (streamingMessageId) {
+      // 更新已有流式消息
+      const msgIndex = messages.findIndex(m => m.id === streamingMessageId)
+      if (msgIndex !== -1) {
+        const updatedMessages = [...messages]
+        updatedMessages[msgIndex] = {
+          ...updatedMessages[msgIndex],
+          content: content,
+          renderedContent: renderedContent,
+          toolsUsed: toolsUsed,
+          isFinal: isFinal
+        }
+        this.setData({
+          messages: updatedMessages,
+          scrollToMessage: `msg-${streamingMessageId}`
+        })
+        
+        if (isFinal) {
+          this.setData({ streamingMessageId: null })
+        }
+        return
+      }
+    }
+    
+    // 创建新的流式消息
+    const aiMessage = {
+      id: Date.now().toString(),
+      role: 'assistant',
+      content: content,
+      renderedContent: renderedContent,
+      toolsUsed: toolsUsed,
+      isFinal: isFinal
+    }
+
+    this.setData({
+      messages: [...messages, aiMessage],
+      streamingMessageId: isFinal ? null : aiMessage.id,
+      scrollToMessage: `msg-${aiMessage.id}`
+    })
+  },
+
   // 清理轮询
   clearPolling() {
     const { pollingTimer } = this.data
     if (pollingTimer) {
       clearTimeout(pollingTimer)
-      this.setData({ 
-        pollingTimer: null,
-        isLoading: false,
-        statusText: ''
-      })
     }
+    this.setData({ 
+      pollingTimer: null,
+      isLoading: false,
+      statusText: ''
+    })
   },
 
   // 添加AI回复

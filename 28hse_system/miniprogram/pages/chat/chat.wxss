@@ -71,12 +71,13 @@
   width: 70rpx;
   height: 70rpx;
   border-radius: 50%;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background-color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
   margin-right: 20rpx;
   flex-shrink: 0;
+  overflow: hidden;
 }
 
 .avatar-text {
