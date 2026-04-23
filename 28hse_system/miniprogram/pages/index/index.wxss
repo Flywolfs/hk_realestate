@@ -82,17 +82,11 @@
   font-weight: 600;
 }
 
-/* DeepSeek角标 - 搭在港房通按钮右下角，溢出按钮范围 */
+/* DeepSeek角标 - cover-image在map内部，绝对定位，动态计算像素坐标 */
 .deepseek-badge {
-  position: fixed;
-  z-index: 999;
+  position: absolute;
   width: 40rpx;
   height: 40rpx;
-}
-
-.deepseek-badge-img {
-  width: 100%;
-  height: 100%;
 }
 
 /* 房屋类型筛选按钮 */
