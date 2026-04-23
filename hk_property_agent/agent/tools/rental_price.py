@@ -67,3 +67,20 @@ def _format_rental(name: str, info: dict) -> str:
             lines.append(f"  {date_str} | {unit} | 月租 {price:,.0f} 港元")
 
     return "\n".join(lines)
+
+
+if __name__ == "__main__":
+    # ====== 手动调试入口 ======
+    # 用法: cd hk_property_agent && python -m agent.tools.rental_price
+    # 当 agent 租金查询异常时，在此处直接测试
+
+    print("===== get_rental_price 测试 =====")
+
+    # >>> 在此修改要测试的屋苑名称 <<<
+    test_estates = ["太古城", "康怡花園", "不存在的屋苑"]
+
+    for name in test_estates:
+        print(f"\n--- 查询 '{name}' 的租金 ---")
+        result = get_rental_price.invoke({"estate_name": name})
+        print(result)
+        print("-" * 50)

@@ -144,3 +144,42 @@ def _fmt_area(min_area, max_area) -> str:
     if min_area and max_area:
         return f"{min_area:.0f} – {max_area:.0f} 平方呎"
     return "暂无"
+
+
+if __name__ == "__main__":
+    # ====== 手动调试入口 ======
+    # 用法: cd hk_property_agent && python -m agent.tools.estate_search
+
+    print("===== search_estate_by_name 测试 =====")
+
+    # 测试1: 精确匹配
+    print("\n--- 测试1: 精确匹配 '太古城' ---")
+    result = search_estate_by_name.invoke({"name": "太古城"})
+    print(result)
+
+    # 测试2: 模糊匹配
+    print("\n--- 测试2: 模糊匹配 '太古' ---")
+    result = search_estate_by_name.invoke({"name": "太古"})
+    print(result)
+
+    # 测试3: 找不到
+    print("\n--- 测试3: 找不到 '不存在的屋苑' ---")
+    result = search_estate_by_name.invoke({"name": "不存在的屋苑"})
+    print(result)
+
+    # 测试4: 简体输入
+    print("\n--- 测试4: 简体输入 '沙田区' ---")
+    result = search_estate_by_name.invoke({"name": "沙田区"})
+    print(result)
+
+    print("\n===== search_estates_by_area 测试 =====")
+
+    # 测试5: 按地区查询
+    print("\n--- 测试5: 按地区查询 '沙田區' ---")
+    result = search_estates_by_area.invoke({"area": "沙田區", "limit": 5})
+    print(result)
+
+    # 测试6: 找不到地区
+    print("\n--- 测试6: 找不到地区 '火星區' ---")
+    result = search_estates_by_area.invoke({"area": "火星區"})
+    print(result)

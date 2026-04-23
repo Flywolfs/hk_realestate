@@ -103,3 +103,20 @@ def _interpret_ratio(ratio: float) -> str:
         return "（解读：租售比较高，租金回报较好）"
     else:
         return "（解读：租售比很高，请核实数据是否准确）"
+
+
+if __name__ == "__main__":
+    # ====== 手动调试入口 ======
+    # 用法: cd hk_property_agent && python -m agent.tools.rent_sale_ratio
+    # 当 agent 返回租售比异常时，在此处直接测试对应屋苑
+
+    print("===== get_rent_sale_ratio 测试 =====")
+
+    # >>> 在此修改要测试的屋苑名称 <<<
+    test_estates = ["太古城", "康怡花園", "宝翠园"]
+
+    for name in test_estates:
+        print(f"\n--- 查询 '{name}' 的租售比 ---")
+        result = get_rent_sale_ratio.invoke({"estate_name": name})
+        print(result)
+        print("-" * 50)

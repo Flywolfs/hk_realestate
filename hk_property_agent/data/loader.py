@@ -180,17 +180,45 @@ class AgentDataLoader:
             print(f"[DataLoader] 从原始文件补充了 {enriched_count} 条地区数据")
 
         # 名称 -> 屋苑ID 的反向索引（支持中英文名称）
+        # 同名屋苑冲突时，优先选择有动态数据的 ID
+        rent_ratio_data = self._data.get('rent_ratio', {})
+        if isinstance(rent_ratio_data, dict) and 'data' in rent_ratio_data:
+            rent_ratio_data = rent_ratio_data['data']
+        dynamic_data = self._data.get('dynamic_estate_data', {})
+        price_trend = self._data.get('price_trend', {})
+        rental_data = self._data.get('rental_summary', {})
+        if isinstance(rental_data, dict) and 'data' in rental_data:
+            rental_data = rental_data['data']
+
+        def _data_score(eid: str) -> int:
+            """计算一个屋苑 ID 的数据丰富度评分（0-4）。"""
+            score = 0
+            if rent_ratio_data.get(eid):
+                score += 1
+            if dynamic_data.get(eid):
+                score += 1
+            if price_trend.get(eid):
+                score += 1
+            if rental_data.get(eid):
+                score += 1
+            return score
+
         self._name_to_id: Dict[str, str] = {}
         for estate_id, info in estate_static.items():
             name = info.get('name', '')
             if name:
-                self._name_to_id[name.lower()] = estate_id
-                self._name_to_id[name] = estate_id
+                for key in (name, name.lower()):
+                    existing = self._name_to_id.get(key)
+                    if existing is None or _data_score(estate_id) > _data_score(existing):
+                        self._name_to_id[key] = estate_id
 
             # 英文名称
             eng_name = info.get('name_en', '') or info.get('nameEn', '')
             if eng_name:
-                self._name_to_id[eng_name.lower()] = estate_id
+                key = eng_name.lower()
+                existing = self._name_to_id.get(key)
+                if existing is None or _data_score(estate_id) > _data_score(existing):
+                    self._name_to_id[key] = estate_id
 
         # 地区 -> 屋苑ID列表 的索引
         self._area_index: Dict[str, List[str]] = {}

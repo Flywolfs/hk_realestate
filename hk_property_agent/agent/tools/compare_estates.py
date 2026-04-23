@@ -102,3 +102,25 @@ def _fmt_area(min_a, max_a) -> str:
     if min_a and max_a:
         return f"{min_a:.0f}–{max_a:.0f}"
     return "暂无"
+
+
+if __name__ == "__main__":
+    # ====== 手动调试入口 ======
+    # 用法: cd hk_property_agent && python -m agent.tools.compare_estates
+    # 当 agent 对比结果异常时，在此处直接测试
+
+    print("===== compare_estates 测试 =====")
+
+    # >>> 在此修改要对比的屋苑 <<<
+    test_cases = [
+        ["太古城", "康怡花園"],
+        ["太古城", "康怡花園", "嘉湖山庄"],
+        ["不存在的屋苑"],
+        ["A", "B", "C", "D", "E", "F"],  # 超过5个
+    ]
+
+    for names in test_cases:
+        print(f"\n--- 对比 {names} ---")
+        result = compare_estates.invoke({"estate_names": names})
+        print(result)
+        print("-" * 50)

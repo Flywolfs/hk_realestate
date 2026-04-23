@@ -149,3 +149,30 @@ def _analyze_trend(monthly: dict) -> str:
         return f"成交萎缩，近3月成交量减少 {abs(vol_change):.0f}%"
     else:
         return "成交量基本持平"
+
+
+if __name__ == "__main__":
+    # ====== 手动调试入口 ======
+    # 用法: cd hk_property_agent && python -m agent.tools.sales_volume
+    # 当 agent 成交量查询异常时，在此处直接测试
+
+    print("===== get_sales_volume 测试 =====")
+
+    # >>> 在此修改要测试的参数 <<<
+    test_cases = [
+        {"estate_name": "太古城", "months": 12},
+        {"estate_name": "太古城", "months": 6},
+        {"estate_name": "不存在的屋苑", "months": 12},
+        {"area": "沙田區", "months": 12},
+        {},  # 无参数
+    ]
+
+    for case in test_cases:
+        estate = case.get("estate_name", "")
+        area = case.get("area", "")
+        months = case.get("months", 12)
+        label = estate or area or "无参数"
+        print(f"\n--- 查询 '{label}' 近 {months} 个月成交量 ---")
+        result = get_sales_volume.invoke(case)
+        print(result)
+        print("-" * 50)

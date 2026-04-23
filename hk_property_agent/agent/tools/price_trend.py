@@ -90,3 +90,26 @@ def _extract_price(val) -> float | None:
     if isinstance(val, dict):
         return val.get('avg') or val.get('average') or val.get('mean')
     return None
+
+
+if __name__ == "__main__":
+    # ====== 手动调试入口 ======
+    # 用法: cd hk_property_agent && python -m agent.tools.price_trend
+    # 当 agent 返回价格趋势异常时，在此处直接测试对应屋苑
+
+    print("===== get_price_trend 测试 =====")
+
+    # >>> 在此修改要测试的屋苑名称和月数 <<<
+    test_cases = [
+        {"estate_name": "太古城", "months": 12},
+        {"estate_name": "太古城", "months": 6},
+        {"estate_name": "不存在的屋苑", "months": 12},
+    ]
+
+    for case in test_cases:
+        name = case["estate_name"]
+        months = case["months"]
+        print(f"\n--- 查询 '{name}' 近 {months} 个月价格趋势 ---")
+        result = get_price_trend.invoke(case)
+        print(result)
+        print("-" * 50)

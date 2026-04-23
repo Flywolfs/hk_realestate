@@ -96,3 +96,26 @@ def _fmt_price(price) -> str:
     if price is None:
         return "暂无"
     return f"{price:,.0f} 港元/呎"
+
+
+if __name__ == "__main__":
+    # ====== 手动调试入口 ======
+    # 用法: cd hk_property_agent && python -m agent.tools.area_stats
+    # 当 agent 地区统计异常时，在此处直接测试
+
+    print("===== get_area_stats 测试 =====")
+
+    # >>> 在此修改要测试的地区 <<<
+    test_cases = [
+        {"area": "沙田區"},          # 查询指定地区
+        {"area": "將軍澳"},          # 查询另一个地区
+        {"area": "火星區"},          # 不存在的地区
+        {},                            # 全港概览
+    ]
+
+    for case in test_cases:
+        area = case.get("area", "全港概览")
+        print(f"\n--- 查询 '{area}' ---")
+        result = get_area_stats.invoke(case)
+        print(result)
+        print("-" * 50)

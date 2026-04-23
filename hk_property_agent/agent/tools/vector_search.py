@@ -87,3 +87,27 @@ def _fmt_price(price) -> str:
     if price is None:
         return "暂无"
     return f"{price:,.0f} 港元/呎"
+
+
+if __name__ == "__main__":
+    # ====== 手动调试入口 ======
+    # 用法: cd hk_property_agent && python -m agent.tools.vector_search
+    # 当 agent 语义搜索异常时，在此处直接测试
+
+    print("===== semantic_search 测试 =====")
+
+    # >>> 在此修改要测试的自然语言查询 <<<
+    test_queries = [
+        {"query": "租售比高的大型屋苑", "top_k": 5},
+        {"query": "沙田区校网好的屋苑", "top_k": 3},
+        {"query": "价格便宜的屋苑", "top_k": 5},
+        {"query": "完全不相关的查询xyz", "top_k": 3},
+    ]
+
+    for case in test_queries:
+        query = case["query"]
+        top_k = case.get("top_k", 8)
+        print(f"\n--- 语义搜索: '{query}' (top_k={top_k}) ---")
+        result = semantic_search.invoke(case)
+        print(result)
+        print("-" * 50)

@@ -178,3 +178,38 @@ def _fmt_age(age, establish_year=None) -> str:
     if establish_year:
         return f"入伙年份 {int(establish_year)}"
     return "暂无"
+
+
+if __name__ == "__main__":
+    # ====== 手动调试入口 ======
+    # 用法: cd hk_property_agent && python -m agent.tools.filter_estates
+    # 当 agent 筛选结果异常时，在此处直接测试
+
+    print("===== filter_estates 测试 =====")
+
+    # >>> 在此修改筛选条件 <<<
+    test_cases = [
+        # 测试1: 按地区筛选
+        {"area": "沙田區", "limit": 5},
+        # 测试2: 尺价筛选
+        {"max_price": 10000, "sort_by": "price", "sort_order": "asc", "limit": 5},
+        # 测试3: 租售比筛选
+        {"min_rent_ratio": 4.0, "sort_by": "rent_ratio", "sort_order": "desc", "limit": 5},
+        # 测试4: 组合条件
+        {"area": "沙田區", "min_rent_ratio": 3.5, "max_price": 15000, "limit": 5},
+        # 测试5: 面积筛选
+        {"min_area_size": 400, "max_area_size": 600, "sort_by": "area_size", "limit": 5},
+        # 测试6: 月租筛选
+        {"max_rent": 20000, "sort_by": "rent", "sort_order": "asc", "limit": 5},
+        # 测试7: 楼龄筛选
+        {"max_building_age": 20, "sort_by": "building_age", "limit": 5},
+        # 测试8: 包含公屋
+        {"area": "沙田區", "include_public_housing": True, "limit": 5},
+    ]
+
+    for i, case in enumerate(test_cases, 1):
+        desc = ", ".join(f"{k}={v}" for k, v in case.items() if k != "limit")
+        print(f"\n--- 测试{i}: {desc or '无条件'} ---")
+        result = filter_estates.invoke(case)
+        print(result)
+        print("-" * 50)
