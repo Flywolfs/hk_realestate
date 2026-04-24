@@ -82,11 +82,9 @@
   font-weight: 600;
 }
 
-/* DeepSeek角标 - cover-image在map内部，绝对定位，动态计算像素坐标 */
+/* DeepSeek角标 - 尺寸由JS动态计算维持图片比例，防止拉伸 */
 .deepseek-badge {
   position: absolute;
-  width: 40rpx;
-  height: 40rpx;
 }
 
 /* 房屋类型筛选按钮 */

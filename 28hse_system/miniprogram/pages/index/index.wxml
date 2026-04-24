@@ -44,8 +44,8 @@
         <cover-view class="btn-text">港房通AI</cover-view>
       </cover-view>
     </cover-view>
-    <!-- DeepSeek角标 - cover-image在map内部原生层渲染，不会被按钮盖住 -->
-    <cover-image class="deepseek-badge" src="/images/deepseek.png" bindtap="openChat" style="top: {{deepseekBadgeTop}}px; right: {{deepseekBadgeRight}}px;"></cover-image>
+    <!-- DeepSeek角标 - 定位完成后才显示，避免闪现 -->
+    <cover-image wx:if="{{showDeepseekBadge}}" class="deepseek-badge" src="/images/deepseek.png" bindtap="openChat" style="top: {{deepseekBadgeTop}}px; right: {{deepseekBadgeRight}}px; width: {{deepseekBadgeWidth}}px; height: {{deepseekBadgeHeight}}px;"></cover-image>
     <!-- 房屋类型筛选按钮 -->
     <cover-view class="housing-filter-container">
       <cover-view class="housing-filter-btn {{housingTypeFilter.showPublic ? 'active' : ''}}" bindtap="togglePublic">

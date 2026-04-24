@@ -82,9 +82,12 @@ Page({
     // 水印列表
     watermarkList: [],
 
-    // DeepSeek角标定位
-    deepseekgitBadgeTop: 0,
-    deepseekBadgeRight: 0
+    // DeepSeek角标定位（初始隐藏，避免闪现）
+    showDeepseekBadge: false,
+    deepseekBadgeTop: 0,
+    deepseekBadgeRight: 0,
+    deepseekBadgeWidth: 40,
+    deepseekBadgeHeight: 30
   },
 
   onLoad() {
@@ -94,29 +97,46 @@ Page({
     this.loadEstates()
     this.generateWatermark()
     
-    // 延迟定位DeepSeek角标（等待按钮渲染完成）
-    setTimeout(() => {
-      this.positionDeepSeekBadge()
-    }, 500)
-    
     // 检查是否需要显示登录弹窗（延迟2秒显示，避免打扰）
     setTimeout(() => {
       this.checkAndShowLoginModal()
     }, 2000)
   },
 
+  onReady() {
+    // 页面首屏渲染完成后立即定位角标，无需额外延时
+    wx.nextTick(() => {
+      this.positionDeepSeekBadge()
+    })
+  },
+
   // 定位DeepSeek角标到港房通按钮右下角
   positionDeepSeekBadge() {
     const query = wx.createSelectorQuery()
-    query.select('.chat-btn').boundingClientRect((rect) => {
-      if (!rect) return
-      // 图标中心在按钮右下角，一半溢出
-      const badgeSize = 40 / 750 * wx.getSystemInfoSync().windowWidth // 40rpx转px
-      this.setData({
-        deepseekBadgeTop: rect.bottom - badgeSize / 2,
-        deepseekBadgeRight: wx.getSystemInfoSync().windowWidth - rect.right + badgeSize / 2 - 4
-      })
-    }).exec()
+    const sysInfo = wx.getSystemInfoSync()
+    
+    // 先获取图片真实宽高比
+    wx.getImageInfo({
+      src: '/images/deepseek.png',
+      success: (imgInfo) => {
+        const targetWidth = 40 / 750 * sysInfo.windowWidth // 40rpx转px
+        const aspectRatio = imgInfo.width / imgInfo.height
+        const actualHeight = targetWidth / aspectRatio
+        
+        // 再获取按钮位置
+        query.select('.chat-btn').boundingClientRect((rect) => {
+          if (!rect) return
+          // 图标中心在按钮右下角，一半溢出
+          this.setData({
+            deepseekBadgeTop: rect.bottom - actualHeight / 2,
+            deepseekBadgeRight: sysInfo.windowWidth - rect.right + targetWidth / 2 - 4,
+            deepseekBadgeWidth: targetWidth,
+            deepseekBadgeHeight: actualHeight,
+            showDeepseekBadge: true  // 定位完成，显示图标
+          })
+        }).exec()
+      }
+    })
   },
 
   // 生成水印
