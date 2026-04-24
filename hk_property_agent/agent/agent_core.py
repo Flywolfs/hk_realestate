@@ -24,6 +24,7 @@ LLM_MODEL = os.environ.get('LLM_MODEL', 'gpt-4o')
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
 OPENAI_BASE_URL = os.environ.get('OPENAI_BASE_URL', 'https://api.openai.com/v1')
 DEEPSEEK_API_KEY = os.environ.get('DEEPSEEK_API_KEY', '')
+DEEPSEEK_THINKING = os.environ.get('DEEPSEEK_THINKING', 'disabled').lower() in ('enabled', 'true', '1')
 
 # 单个用户对话历史最大保留轮数（超出后截断最旧的轮次）
 MAX_HISTORY_TURNS = 10
@@ -90,20 +91,82 @@ def _build_llm():
     """根据配置构建 LLM 实例。"""
     if LLM_PROVIDER == 'openai':
         from langchain_openai import ChatOpenAI
-        return ChatOpenAI(
+        llm = ChatOpenAI(
             model=LLM_MODEL,
             temperature=0,
             openai_api_key=OPENAI_API_KEY,
             openai_api_base=OPENAI_BASE_URL,
         )
+        print(f"[LLM] provider=openai  model={LLM_MODEL}  thinking=N/A")
+        return llm
     elif LLM_PROVIDER == 'deepseek':
-        from langchain_openai import ChatOpenAI
-        return ChatOpenAI(
-            model=LLM_MODEL or 'deepseek-chat',
-            temperature=0,
-            openai_api_key=DEEPSEEK_API_KEY,
-            openai_api_base='https://api.deepseek.com/v1',
-        )
+        model_name = LLM_MODEL or 'deepseek-chat'
+        thinking_enabled = DEEPSEEK_THINKING
+
+        # 优先使用 langchain_deepseek 官方集成（含 reasoning_content 修复）
+        try:
+            from langchain_deepseek import ChatDeepSeek as _ChatDeepSeek
+
+            class ChatDeepSeekFixed(_ChatDeepSeek):
+                """ChatDeepSeek 子类：修复 reasoning_content 序列化丢失问题。
+
+                langchain-deepseek 1.0.1 能正确从响应中提取 reasoning_content
+                到 AIMessage.additional_kwargs，但在序列化消息回 API 时丢失了
+                该字段，导致 DeepSeek v4 thinking mode 下 tool call 后续请求
+                返回 400 错误。此子类在 _get_request_payload 中将
+                reasoning_content 注回请求 payload。
+                """
+
+                def _get_request_payload(self, input_, *, stop=None, **kwargs):
+                    payload = super()._get_request_payload(input_, stop=stop, **kwargs)
+
+                    # 收集原始 AIMessage 中的 reasoning_content，按 assistant
+                    # 消息出现顺序编号
+                    from langchain_core.messages import AIMessage as _AIMsg
+                    reasoning_map = {}
+                    ai_count = 0
+                    if isinstance(input_, list):
+                        for m in input_:
+                            if isinstance(m, _AIMsg):
+                                rc = m.additional_kwargs.get('reasoning_content')
+                                if rc is not None:
+                                    reasoning_map[ai_count] = rc
+                                ai_count += 1
+
+                    # 将 reasoning_content 注入到对应的 dict 消息
+                    ai_idx = 0
+                    for msg in payload.get("messages", []):
+                        if msg.get("role") == "assistant":
+                            if ai_idx in reasoning_map:
+                                msg["reasoning_content"] = reasoning_map[ai_idx]
+                            ai_idx += 1
+
+                    return payload
+
+            extra_body = {'thinking': {'type': 'enabled'}} if thinking_enabled else None
+            llm = ChatDeepSeekFixed(
+                model=model_name,
+                temperature=0,
+                api_key=DEEPSEEK_API_KEY,
+                extra_body=extra_body,
+            )
+            print(f"[LLM] provider=deepseek  model={model_name}  thinking={'enabled' if thinking_enabled else 'disabled'}  (ChatDeepSeekFixed)")
+            return llm
+        except ImportError:
+            # 回退到 ChatOpenAI，禁用 thinking mode（ChatOpenAI 无法处理
+            # reasoning_content，只能通过 extra_body 关闭思考模式规避）
+            from langchain_openai import ChatOpenAI
+            if thinking_enabled:
+                print(f"[LLM] WARNING: langchain-deepseek 未安装，无法启用 thinking mode，已自动禁用")
+            llm = ChatOpenAI(
+                model=model_name,
+                temperature=0,
+                openai_api_key=DEEPSEEK_API_KEY,
+                openai_api_base='https://api.deepseek.com/v1',
+                model_kwargs={'extra_body': {'thinking': {'type': 'disabled'}}},
+            )
+            print(f"[LLM] provider=deepseek  model={model_name}  thinking=disabled  (ChatOpenAI fallback)")
+            return llm
     else:
         raise ValueError(f"不支持的 LLM_PROVIDER: {LLM_PROVIDER}")
 

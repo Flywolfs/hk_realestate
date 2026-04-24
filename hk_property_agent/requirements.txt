@@ -1,5 +1,6 @@
 langchain>=0.3
 langchain-openai
+langchain-deepseek
 langchain-community
 langchain-core
 langgraph
