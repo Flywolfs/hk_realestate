@@ -11,6 +11,9 @@ Agent 服务 FastAPI 入口
   POST /api/agent/reload            - 热更新数据
   GET  /api/agent/health            - 健康检查
   GET  /api/agent/stats             - 运行统计
+  GET  /api/agent/logs              - 查看对话日志
+  GET  /api/agent/logs/download     - 下载对话日志文件
+  POST /api/agent/logs/sync         - 手动同步日志到COS
   GET  /debug                       - 调试界面
 """
 
@@ -21,6 +24,7 @@ import logging
 import asyncio
 import time
 import uuid
+from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -39,6 +43,7 @@ from typing import Optional
 
 from server.wechat_auth import extract_user_from_headers, get_wechat_session, generate_token
 from server.security import check_rate_limit, check_content_safety
+from server.conversation_logger import get_conversation_logger
 from agent.agent_core import get_agent
 from data.loader import get_loader
 
@@ -78,11 +83,13 @@ def _cleanup_expired_tasks():
         del _task_store[tid]
 
 
-async def _run_agent_task(task_id: str, message: str, session_id: str):
+async def _run_agent_task(task_id: str, message: str, session_id: str, source: str = '', question_time: str = ''):
     """后台协程：执行 Agent 对话并实时更新任务状态。"""
     task = _task_store.get(task_id)
     if not task:
         return
+    start_time = time.time()
+    react_steps = []
     try:
         agent = get_agent()
         async for event in agent.astream_chat(message, session_id):
@@ -96,9 +103,28 @@ async def _run_agent_task(task_id: str, message: str, session_id: str):
                 if tool_name and tool_name not in task['tools_used']:
                     task['tools_used'].append(tool_name)
             elif event.get('type') == 'done':
+                react_steps = event.get('react_steps', [])
                 break
         task['status'] = 'done'
+        duration_ms = int((time.time() - start_time) * 1000)
         logger.info(f"[Task] {task_id} LLM reply: {task['partial_reply']}")
+
+        # 记录对话日志
+        try:
+            conv_logger = get_conversation_logger()
+            conv_logger.log_conversation(
+                openid=session_id,
+                source=source,
+                question=message,
+                react_steps=react_steps,
+                tools_used=task['tools_used'],
+                final_reply=task['partial_reply'],
+                duration_ms=duration_ms,
+                mode='async',
+                question_time=question_time,
+            )
+        except Exception as log_err:
+            logger.warning(f"[Task] 对话日志写入失败: {log_err}")
     except Exception as e:
         logger.error(f"[Task] {task_id} 异常: {e}", exc_info=True)
         task['status'] = 'error'
@@ -212,10 +238,30 @@ async def chat(
 
     # --- 同步模式 ---
     if sync:
+        start_time = time.time()
+        question_time = datetime.fromtimestamp(start_time).isoformat()
         try:
             agent = get_agent()
-            reply, tools_used = await agent.achat(message, session_id)
+            reply, tools_used, react_steps = await agent.achat(message, session_id)
+            duration_ms = int((time.time() - start_time) * 1000)
             logger.info(f"[Chat] LLM reply: {reply}")
+
+            # 记录对话日志
+            try:
+                conv_logger = get_conversation_logger()
+                conv_logger.log_conversation(
+                    openid=session_id,
+                    source=user.get('source', ''),
+                    question=message,
+                    react_steps=react_steps,
+                    tools_used=tools_used,
+                    final_reply=reply,
+                    duration_ms=duration_ms,
+                    mode='sync',
+                    question_time=question_time,
+                )
+            except Exception as log_err:
+                logger.warning(f"[Chat] 对话日志写入失败: {log_err}")
         except Exception as e:
             logger.error(f"[Chat] Agent 异常: {e}", exc_info=True)
             return JSONResponse(
@@ -238,7 +284,8 @@ async def chat(
         'created_at': time.time(),
     }
 
-    asyncio.create_task(_run_agent_task(task_id, message, session_id))
+    question_time = datetime.now().isoformat()
+    asyncio.create_task(_run_agent_task(task_id, message, session_id, source=user.get('source', ''), question_time=question_time))
     logger.info(f"[Task] 创建任务 {task_id} for session={session_id[:12]}...")
 
     return {'success': True, 'task_id': task_id, 'session_id': session_id}
@@ -303,11 +350,19 @@ async def chat_stream(body: ChatRequest, user: dict = Depends(get_current_user))
 
     async def event_generator():
         full_reply = ""
+        react_steps = []
+        stream_tools_used = []
+        start_time = time.time()
+        question_time = datetime.fromtimestamp(start_time).isoformat()
         try:
             agent = get_agent()
             async for event in agent.astream_chat(message, session_id):
                 if event.get('type') == 'token':
                     full_reply += event.get('text', '')
+                elif event.get('type') == 'done':
+                    react_steps = event.get('react_steps', [])
+                    stream_tools_used = event.get('tools_used', [])
+                    full_reply = event.get('full_reply', full_reply)
                 yield json.dumps(event, ensure_ascii=False) + "\n"
         except Exception as e:
             logger.error(f"[Stream] 异常: {e}", exc_info=True)
@@ -316,6 +371,23 @@ async def chat_stream(body: ChatRequest, user: dict = Depends(get_current_user))
         finally:
             if full_reply:
                 logger.info(f"[Stream] LLM full reply: {full_reply}")
+            # 记录对话日志
+            try:
+                duration_ms = int((time.time() - start_time) * 1000)
+                conv_logger = get_conversation_logger()
+                conv_logger.log_conversation(
+                    openid=session_id,
+                    source=user.get('source', ''),
+                    question=message,
+                    react_steps=react_steps,
+                    tools_used=stream_tools_used,
+                    final_reply=full_reply,
+                    duration_ms=duration_ms,
+                    mode='stream',
+                    question_time=question_time,
+                )
+            except Exception as log_err:
+                logger.warning(f"[Stream] 对话日志写入失败: {log_err}")
 
     return StreamingResponse(
         event_generator(),
@@ -373,6 +445,67 @@ async def stats(request: Request):
         'vector_index_ready': vs.is_ready(),
         'data': data_stats,
     }
+
+
+@app.get('/api/agent/logs')
+async def get_logs(
+    request: Request,
+    date: Optional[str] = Query(default=None, description="日期 YYYY-MM-DD，默认今天"),
+    limit: int = Query(default=50, description="返回条数", ge=1, le=500),
+):
+    """查看对话日志（Admin 接口）。"""
+    verify_admin(request)
+
+    conv_logger = get_conversation_logger()
+    records = conv_logger.get_recent_logs(date=date, limit=limit)
+    available_dates = conv_logger.get_available_dates()
+
+    return {
+        'success': True,
+        'date': date or __import__('datetime').datetime.now().strftime('%Y-%m-%d'),
+        'count': len(records),
+        'records': records,
+        'available_dates': available_dates,
+    }
+
+
+@app.get('/api/agent/logs/download')
+async def download_logs(
+    request: Request,
+    date: Optional[str] = Query(default=None, description="日期 YYYY-MM-DD，默认今天"),
+):
+    """下载对话日志文件（Admin 接口）。"""
+    verify_admin(request)
+
+    conv_logger = get_conversation_logger()
+    file_path = conv_logger.download_log_file(date=date)
+
+    if not file_path or not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="日志文件不存在")
+
+    date_str = date or __import__('datetime').datetime.now().strftime('%Y-%m-%d')
+    return FileResponse(
+        file_path,
+        media_type='application/x-ndjson',
+        filename=f'agent_logs_{date_str}.jsonl',
+    )
+
+
+@app.post('/api/agent/logs/sync')
+async def sync_logs(
+    request: Request,
+    date: Optional[str] = Query(default=None, description="日期 YYYY-MM-DD，默认今天"),
+):
+    """手动同步对话日志到 COS（Admin 接口）。"""
+    verify_admin(request)
+
+    conv_logger = get_conversation_logger()
+    result = conv_logger.trigger_cos_sync(date=date)
+
+    if result['success']:
+        return result
+    else:
+        return JSONResponse(status_code=500, content=result)
 
 
 @app.get('/debug')

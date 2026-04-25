@@ -297,8 +297,10 @@ class HKPropertyAgent:
 
         return reply, tools_used
 
-    async def achat(self, message: str, session_id: str) -> Tuple[str, list]:
-        """异步版 chat，供 FastAPI 调用。"""
+    async def achat(self, message: str, session_id: str) -> Tuple[str, list, list]:
+        """异步版 chat，供 FastAPI 调用。
+        :return: (reply, tools_used, react_steps)
+        """
         from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
         with self._lock:
@@ -310,12 +312,37 @@ class HKPropertyAgent:
         if len(history) > max_msgs:
             history = history[-max_msgs:]
 
+        react_steps = []
         try:
             result = await self._graph.ainvoke(
                 {"messages": history},
                 config={"recursion_limit": 10},
             )
             updated_messages = result["messages"]
+
+            # 提取 ReAct 推理步骤（仅本次新增的消息）
+            new_messages = updated_messages[len(history):]
+            for msg in new_messages:
+                if isinstance(msg, AIMessage):
+                    if msg.tool_calls:
+                        for tc in msg.tool_calls:
+                            react_steps.append({
+                                'type': 'tool_call',
+                                'tool': tc['name'],
+                                'args': tc['args'],
+                            })
+                    elif msg.content:
+                        react_steps.append({
+                            'type': 'final_answer',
+                            'content_preview': msg.content[:300],
+                        })
+                elif isinstance(msg, ToolMessage):
+                    content_str = str(msg.content)
+                    react_steps.append({
+                        'type': 'tool_result',
+                        'tool': msg.name,
+                        'result_preview': content_str[:500],
+                    })
 
             reply = "抱歉，我暂时无法处理您的请求，请稍后再试。"
             for msg in reversed(updated_messages):
@@ -353,7 +380,7 @@ class HKPropertyAgent:
                         break
             self._sessions[session_id] = filtered
 
-        return reply, tools_used
+        return reply, tools_used, react_steps
 
     async def astream_chat(self, message: str, session_id: str):
         """
@@ -376,6 +403,7 @@ class HKPropertyAgent:
         full_reply = ""
         tools_used = []
         updated_messages = history
+        react_steps = []
 
         try:
             async for event in self._graph.astream_events(
@@ -387,7 +415,25 @@ class HKPropertyAgent:
 
                 if kind == "on_tool_start":
                     tool_name = event.get("name", "")
+                    tool_input = event.get("data", {}).get("input", {})
+                    react_steps.append({
+                        'type': 'tool_call',
+                        'tool': tool_name,
+                        'args': tool_input if isinstance(tool_input, dict) else {'input': str(tool_input)},
+                    })
                     yield {"type": "status", "text": f"正在调用 {tool_name}..."}
+
+                elif kind == "on_tool_end":
+                    tool_name = event.get("name", "")
+                    tool_output = event.get("data", {}).get("output", "")
+                    output_str = str(tool_output)
+                    react_steps.append({
+                        'type': 'tool_result',
+                        'tool': tool_name,
+                        'result_preview': output_str[:500],
+                    })
+                    if tool_name not in tools_used:
+                        tools_used.append(tool_name)
 
                 elif kind == "on_chat_model_stream":
                     chunk = event.get("data", {}).get("chunk")
@@ -409,6 +455,13 @@ class HKPropertyAgent:
             yield {"type": "token", "text": f"抱歉，处理您的请求时发生错误：{str(e)[:200]}"}
             updated_messages = history
 
+        # 添加最终回答步骤
+        if full_reply:
+            react_steps.append({
+                'type': 'final_answer',
+                'content_preview': full_reply[:300],
+            })
+
         # Persist session
         with self._lock:
             filtered = []
@@ -428,7 +481,7 @@ class HKPropertyAgent:
                         break
             self._sessions[session_id] = filtered
 
-        yield {"type": "done", "text": ""}
+        yield {"type": "done", "text": "", "react_steps": react_steps, "tools_used": tools_used, "full_reply": full_reply}
 
     def clear_session(self, session_id: str):
         """清除指定用户的对话历史。"""
