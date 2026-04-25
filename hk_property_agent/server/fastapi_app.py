@@ -14,6 +14,7 @@ Agent 服务 FastAPI 入口
   GET  /api/agent/logs              - 查看对话日志
   GET  /api/agent/logs/download     - 下载对话日志文件
   POST /api/agent/logs/sync         - 手动同步日志到COS
+  GET  /api/agent/logs/cos-test     - 测试COS写入权限诊断
   GET  /debug                       - 调试界面
 """
 
@@ -506,6 +507,16 @@ async def sync_logs(
         return result
     else:
         return JSONResponse(status_code=500, content=result)
+
+
+@app.get('/api/agent/logs/cos-test')
+async def test_cos_write(request: Request):
+    """测试 COS 写入权限诊断（Admin 接口）。"""
+    verify_admin(request)
+
+    conv_logger = get_conversation_logger()
+    results = conv_logger.test_cos_write()
+    return {'success': True, 'diagnostics': results}
 
 
 @app.get('/debug')

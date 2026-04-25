@@ -25,11 +25,12 @@ from typing import Optional
 LOG_DIR = os.environ.get('AGENT_LOG_DIR', '/tmp/agent_logs')
 COS_LOG_PREFIX = 'logs/'
 
-# COS 凭证（复用 data/loader.py 的环境变量）
-COS_BUCKET = os.environ.get('COS_BUCKET', '')
-COS_REGION = os.environ.get('COS_REGION', 'ap-guangzhou')
-COS_SECRET_ID = os.environ.get('COS_SECRET_ID', '')
-COS_SECRET_KEY = os.environ.get('COS_SECRET_KEY', '')
+# COS 日志专用凭证（独立于数据服务的只读凭证）
+# 优先使用日志专用环境变量，若无则回退到数据服务凭证
+COS_BUCKET = os.environ.get('COS_LOG_BUCKET', '') or os.environ.get('COS_BUCKET', '')
+COS_REGION = os.environ.get('COS_LOG_REGION', '') or os.environ.get('COS_REGION', 'ap-guangzhou')
+COS_SECRET_ID = os.environ.get('COS_LOG_SECRET_ID', '') or os.environ.get('COS_SECRET_ID', '')
+COS_SECRET_KEY = os.environ.get('COS_LOG_SECRET_KEY', '') or os.environ.get('COS_SECRET_KEY', '')
 
 
 class ConversationLogger:
@@ -179,6 +180,89 @@ class ConversationLogger:
             return {'success': True, 'message': f'{date} 日志已上传到 COS'}
         else:
             return {'success': False, 'error': '上传失败，请查看服务日志'}
+
+    def test_cos_write(self) -> dict:
+        """测试 COS 写入权限，返回诊断结果。"""
+        if not self._cos_enabled:
+            return {'success': False, 'error': 'COS 未配置（缺少 COS_BUCKET/COS_SECRET_ID/COS_SECRET_KEY）'}
+
+        client = self._get_cos_client()
+        if client is None:
+            return {'success': False, 'error': 'COS 客户端初始化失败'}
+
+        import tempfile
+        test_content = f'cos-write-test-{datetime.now().isoformat()}'
+        results = {}
+
+        # 测试1: 尝试上传到 logs/ 前缀
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+                f.write(test_content)
+                tmp_path = f.name
+            client.upload_file(Bucket=COS_BUCKET, Key='logs/_write_test.txt', LocalFilePath=tmp_path)
+            results['logs_prefix'] = {'success': True}
+            # 清理测试文件
+            try:
+                client.delete_object(Bucket=COS_BUCKET, Key='logs/_write_test.txt')
+            except Exception:
+                pass
+        except Exception as e:
+            results['logs_prefix'] = {'success': False, 'error': str(e)[:300]}
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+        # 测试2: 尝试上传到 data/ 前缀（现有数据所在路径）
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+                f.write(test_content)
+                tmp_path = f.name
+            client.upload_file(Bucket=COS_BUCKET, Key='data/_write_test.txt', LocalFilePath=tmp_path)
+            results['data_prefix'] = {'success': True}
+            # 清理测试文件
+            try:
+                client.delete_object(Bucket=COS_BUCKET, Key='data/_write_test.txt')
+            except Exception:
+                pass
+        except Exception as e:
+            results['data_prefix'] = {'success': False, 'error': str(e)[:300]}
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+        # 测试3: 尝试上传到根路径
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False, encoding='utf-8') as f:
+                f.write(test_content)
+                tmp_path = f.name
+            client.upload_file(Bucket=COS_BUCKET, Key='_write_test.txt', LocalFilePath=tmp_path)
+            results['root_prefix'] = {'success': True}
+            try:
+                client.delete_object(Bucket=COS_BUCKET, Key='_write_test.txt')
+            except Exception:
+                pass
+        except Exception as e:
+            results['root_prefix'] = {'success': False, 'error': str(e)[:300]}
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+        # 测试4: 读取权限（确认读取正常）
+        try:
+            client.head_object(Bucket=COS_BUCKET, Key='data/')
+            results['read_access'] = {'success': True, 'note': '读取权限正常'}
+        except Exception as e:
+            results['read_access'] = {'success': False, 'error': str(e)[:200]}
+
+        results['cos_bucket'] = COS_BUCKET
+        results['cos_region'] = COS_REGION
+        return results
 
     # ----------------------------------------------------------
     # 本地文件写入
