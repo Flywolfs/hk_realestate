@@ -60,6 +60,13 @@ class CentanetTransactionScraper:
     # 每页最大数据量
     MAX_PAGE_SIZE = 100
     
+    # API分页上限：offset + size 不得超过此值（实测验证，超过返回空）
+    MAX_OFFSET_LIMIT = 10000
+    
+    # 双向爬取交界冗余条数：API对同一天内的记录排序不稳定（实测），
+    # 升序补抓时多抓此条数以确保与降序流在日期上有重叠，避免交界处缺漏
+    PAGE_OVERLAP_BUFFER = 1000
+    
     def __init__(
         self, 
         request_interval: float = 1.0, 
@@ -71,7 +78,8 @@ class CentanetTransactionScraper:
         skip_finished_file: str = None,
         earliest_date: str = None,
         history_dir: str = None,
-        skip_empty_file: str = None
+        skip_empty_file: str = None,
+        all_history: bool = False
     ):
         """
         初始化爬虫
@@ -87,6 +95,9 @@ class CentanetTransactionScraper:
             earliest_date: 最早日期字符串（格式 'YYYY-MM-DD'），用于过滤交易记录
             history_dir: 历史记录目录（上一次爬取的输出目录），用于增量更新
             skip_empty_file: 空屋苑记录文件路径，跳过其中记录的无记录屋苑
+            all_history: 是否爬取全部历史成交记录。实测API在day=Day1095时仅返回近3年数据，
+                        不传day参数则返回全部历史（可追溯到1995年），超过10000条的屋苑
+                        自动双向爬取（降序取最新+升序取最老）后按ID去重
         """
         self.session = requests.Session()
         self.request_interval = request_interval
@@ -97,6 +108,7 @@ class CentanetTransactionScraper:
         self.earliest_date = earliest_date
         self.history_dir = history_dir
         self.skip_empty_file = skip_empty_file
+        self.all_history = all_history
         
         # 空屋苑ID集合（从 skip_empty_file 加载）
         self._empty_estate_ids: set = set()
@@ -408,7 +420,8 @@ class CentanetTransactionScraper:
         estate_type_code: str, 
         post_type: str,
         offset: int = 0,
-        size: int = 100
+        size: int = 100,
+        order: str = "Descending"
     ) -> Optional[Dict[str, Any]]:
         """
         获取指定屋苑的交易记录
@@ -418,15 +431,15 @@ class CentanetTransactionScraper:
             post_type: 记录类型 ("Sale" 或 "Rent")
             offset: 分页偏移量
             size: 每页数据量
+            order: 排序方向 ("Descending" 最新在前 或 "Ascending" 最老在前)
             
         Returns:
             API响应数据，失败返回None
         """
         payload = {
             "postType": post_type,
-            "day": self.DAY_RANGE,
             "sort": "InsOrRegDate",
-            "order": "Descending",
+            "order": order,
             "size": size,
             "offset": offset,
             "pageSource": "search",
@@ -439,6 +452,10 @@ class CentanetTransactionScraper:
             "universities": [],
             "phaseAndEstate": []
         }
+        
+        # 全量历史模式不传 day 参数（实测：day=Day1095 仅返回近3年，不传则返回全部历史）
+        if not self.all_history:
+            payload["day"] = self.DAY_RANGE
         
         for attempt in range(self.max_retries):
             try:
@@ -498,6 +515,183 @@ class CentanetTransactionScraper:
         except (ValueError, TypeError):
             return None
     
+    def _fetch_pages(
+        self,
+        estate_type_code: str,
+        post_type: str,
+        total_count: int,
+        order: str,
+        max_records: int = None
+    ) -> List[Dict[str, Any]]:
+        """
+        按指定排序方向分页抓取交易记录
+        
+        Args:
+            estate_type_code: 屋苑ID（typeCode）
+            post_type: 记录类型 ("Sale" 或 "Rent")
+            total_count: 总记录数
+            order: 排序方向 ("Ascending" 或 "Descending")
+            max_records: 最多抓取条数，默认抓取全部（不超过API分页上限）
+            
+        Returns:
+            抓取到的记录列表
+        """
+        records = []
+        limit = total_count
+        if max_records is not None:
+            limit = min(total_count, max_records)
+        # API限制 offset + size <= MAX_OFFSET_LIMIT
+        limit = min(limit, self.MAX_OFFSET_LIMIT)
+        total_pages = (limit + self.MAX_PAGE_SIZE - 1) // self.MAX_PAGE_SIZE
+        
+        for page in range(total_pages):
+            if page > 0:
+                time.sleep(self.request_interval)
+            response = self.fetch_transactions(
+                estate_type_code=estate_type_code,
+                post_type=post_type,
+                offset=page * self.MAX_PAGE_SIZE,
+                size=self.MAX_PAGE_SIZE,
+                order=order
+            )
+            if response and 'data' in response and isinstance(response['data'], list):
+                page_records = response['data']
+                records.extend(page_records)
+                self._print_safe(f"    {order} 第 {page + 1}/{total_pages} 页: +{len(page_records)} 条 (累计 {len(records)})")
+            else:
+                self._print_safe(f"    ⚠ 获取第 {page + 1}/{total_pages} 页数据失败，停止分页")
+                break
+        return records
+    
+    def _merge_dedup(
+        self,
+        desc_records: List[Dict[str, Any]],
+        asc_records: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        合并降序与升序记录并按记录ID去重
+        
+        Args:
+            desc_records: 降序（最新→最老）记录
+            asc_records: 升序（最老→最新）记录
+            
+        Returns:
+            去重合并后的记录列表
+        """
+        seen = set()
+        merged = []
+        for record in list(desc_records) + list(asc_records):
+            record_id = record.get('id')
+            if record_id:
+                if record_id in seen:
+                    continue
+                seen.add(record_id)
+            merged.append(record)
+        return merged
+    
+    def _fetch_full_history(
+        self,
+        estate: Dict[str, Any],
+        post_type: str,
+        earliest_date: str = None
+    ) -> List[Dict[str, Any]]:
+        """
+        爬取屋苑全部历史成交记录（全量历史模式）
+        
+        实测API行为：
+        1. 不传 day 参数时返回全部历史记录（day=Day1095 仅返回近3年）
+        2. 分页限制 offset + size <= 10000，单方向最多取10000条
+        3. 超过10000条的屋苑需双向爬取（降序取最新10000条 + 升序取最老部分）再按ID去重
+        
+        Args:
+            estate: 屋苑信息字典
+            post_type: 记录类型 ("Sale" 或 "Rent")
+            earliest_date: 可选最早日期过滤（格式 'YYYY-MM-DD'）
+            
+        Returns:
+            完整历史记录列表
+        """
+        estate_type_code = estate.get('typeCode', '')
+        estate_name = estate.get('estateName', '未知屋苑')
+        type_name = self._get_post_type_name(post_type)
+        
+        first_response = self.fetch_transactions(
+            estate_type_code=estate_type_code,
+            post_type=post_type,
+            offset=0,
+            size=self.MAX_PAGE_SIZE
+        )
+        
+        if not first_response:
+            self._print_safe(f"    ✗ 获取 {estate_name} 的{type_name}记录失败")
+            return []
+        
+        total_count = first_response.get('count', 0)
+        
+        if total_count == 0:
+            self._record_empty_estate(estate_type_code)
+            self._print_safe(f"    ℹ {estate_name} ({estate_type_code}) {type_name}无记录，已写入 empty_estate.txt")
+            return []
+        
+        self._print_safe(f"    {type_name}记录: 共 {total_count} 条 (全量历史模式)")
+        
+        # 降序：从最新记录开始，最多取 MAX_OFFSET_LIMIT 条
+        desc_records = self._fetch_pages(
+            estate_type_code=estate_type_code,
+            post_type=post_type,
+            total_count=total_count,
+            order="Descending",
+            max_records=self.MAX_OFFSET_LIMIT
+        )
+        
+        # 超过分页上限时，升序补抓最老的部分（含冗余重叠，防止同日排序抖动导致缺漏）
+        asc_records = []
+        if total_count > self.MAX_OFFSET_LIMIT:
+            oldest_count = total_count - self.MAX_OFFSET_LIMIT
+            asc_total = oldest_count + self.PAGE_OVERLAP_BUFFER
+            self._print_safe(f"    {type_name}记录超过API分页上限({self.MAX_OFFSET_LIMIT}条)，"
+                             f"升序补抓最老的 {asc_total} 条 (含{self.PAGE_OVERLAP_BUFFER}条冗余)")
+            asc_records = self._fetch_pages(
+                estate_type_code=estate_type_code,
+                post_type=post_type,
+                total_count=asc_total,
+                order="Ascending"
+            )
+            if len(asc_records) < asc_total:
+                self._print_safe(f"    ⚠ 升序补抓不完整({len(asc_records)}/{asc_total})，"
+                                 f"中间部分记录可能缺失")
+        
+        # 超过双向爬取可覆盖范围(2*MAX_OFFSET_LIMIT)的超级屋苑，中间部分无法获取
+        if total_count > 2 * self.MAX_OFFSET_LIMIT:
+            missing = total_count - 2 * self.MAX_OFFSET_LIMIT
+            self._print_safe(f"    ⚠ {type_name}记录多达 {total_count} 条，超过双向爬取覆盖范围，"
+                             f"中间约 {missing} 条记录无法获取（建议按期数 phaseAndEstate 拆分爬取）")
+        
+        records = self._merge_dedup(desc_records, asc_records)
+        
+        # 完整性检查：合并后数量与API总数对比
+        if len(records) < total_count:
+            missing = total_count - len(records)
+            self._print_safe(f"    ⚠ 合并后 {len(records)} 条，与API总数 {total_count} 条相差 {missing} 条"
+                             f"（可能因同日记录排序抖动缺漏或API计数含重复）")
+        
+        # 最早日期过滤（全量爬取后统一过滤）
+        if earliest_date:
+            earliest_date_obj = self._parse_date(earliest_date)
+            if earliest_date_obj:
+                filtered = []
+                for record in records:
+                    record_date_str = record.get('insDate')
+                    record_date = self._parse_date(record_date_str) if record_date_str else None
+                    if record_date and record_date >= earliest_date_obj:
+                        filtered.append(record)
+                skipped = len(records) - len(filtered)
+                records = filtered
+                self._print_safe(f"    最早日期过滤 {earliest_date}: 保留 {len(records)} 条, 过滤 {skipped} 条")
+        
+        self._print_safe(f"    ✓ {type_name}记录: {len(records)} 条 (全量)")
+        return records
+    
     def fetch_all_transactions_for_estate(
         self, 
         estate: Dict[str, Any],
@@ -522,6 +716,14 @@ class CentanetTransactionScraper:
         estate_type_code = estate.get('typeCode', '')
         estate_name = estate.get('estateName', '未知屋苑')
         type_name = self._get_post_type_name(post_type)
+        
+        # 全量历史模式：不传day参数获取全部历史记录（双向爬取绕过API分页上限）
+        if self.all_history:
+            return self._fetch_full_history(
+                estate=estate,
+                post_type=post_type,
+                earliest_date=earliest_date
+            )
         
         # 解析最早日期
         earliest_date_obj = None
@@ -747,9 +949,9 @@ class CentanetTransactionScraper:
         return "销售" if post_type == self.POST_TYPE_SALE else "租赁"
     
     def _print_safe(self, message: str):
-        """线程安全的打印方法"""
+        """线程安全的打印方法（flush=True 确保管道/重定向输出时实时可见）"""
         with self._progress_lock:
-            print(message)
+            print(message, flush=True)
     
     def scrape_estate(self, estate: Dict[str, Any], thread_idx: int = 0, total: int = 0) -> Dict[str, Any]:
         """
@@ -1057,6 +1259,16 @@ def main():
   # 跳过上次已确认无记录的屋苑（加速重复爬取）
   python scrape_centanet_transactions.py --estate-info estate_info_20260221.json --skip-empty-file empty_estate.txt
   
+  # 爬取全部历史成交记录（不传day参数，可获取1995年至今的全量数据）
+  # 注意：数据量约为3年模式的10-20倍，请求量大，建议降低并发和加大间隔
+  python scrape_centanet_transactions.py --estate-info estate_info_20260221.json --all-history --workers 3 --interval 2.0
+  
+  # 分批爬取全量（推荐）：每批只爬一部分屋苑，多次运行后目录自动合并为完整数据
+  # 批1：屋苑 0-1999；批2：屋苑 2000-3999（--skip-existing-files 自动跳过已完成的）
+  # 中断后重跑同一批命令即可断点续爬，不会重复请求。也可直接运行 batch_crawl_all_history.sh
+  python scrape_centanet_transactions.py --estate-info estate_info_20260221.json --all-history --output-dir transaction_record_all_history --start-from 0 --max-estates 2000
+  python scrape_centanet_transactions.py --estate-info estate_info_20260221.json --all-history --output-dir transaction_record_all_history --start-from 2000 --max-estates 2000 --skip-existing-files
+  
   # 其他参数
   python scrape_centanet_transactions.py --estate-info estate_info_20260221.json --max-estates 100 --interval 2.0
         """
@@ -1133,6 +1345,12 @@ def main():
         default=None,
         help='空屋苑记录文件路径（如 empty_estate.txt），跳过其中记录的无交易记录屋苑'
     )
+    parser.add_argument(
+        '--all-history',
+        action='store_true',
+        help='爬取全部历史成交记录（不传day参数，可获取1995年至今的全量数据；'
+             '超过10000条的屋苑自动双向爬取去重）'
+    )
     
     args = parser.parse_args()
     
@@ -1147,7 +1365,8 @@ def main():
         skip_finished_file=args.skip_finished_file,
         earliest_date=args.earliest_date,
         history_dir=args.history_dir,
-        skip_empty_file=args.skip_empty_file
+        skip_empty_file=args.skip_empty_file,
+        all_history=args.all_history
     )
     
     # 开始爬取
