@@ -163,6 +163,9 @@ class CentanetTransactionScraper:
             'end_time': None
         }
         
+        # 屋苑→期数映射（estateType=Phase 条目按屋苑名分组，用于超级屋苑按期数拆分爬取）
+        self._phases_by_estate: Dict[str, List[str]] = {}
+        
         # 加载屋苑信息
         self.estates: List[Dict[str, Any]] = []
         if estate_info_path:
@@ -406,7 +409,14 @@ class CentanetTransactionScraper:
             if 'data' in data and isinstance(data['data'], list):
                 self.estates = data['data']
                 self.stats['total_estates'] = len(self.estates)
-                print(f"✓ 成功加载 {len(self.estates)} 个屋苑信息")
+                # 构建屋苑→期数映射：estateType=Phase 条目按屋苑名分组
+                # （同一屋苑的 Bigest 与 Phase 条目 estateName 相同，实测无同名歧义）
+                phase_map: Dict[str, List[str]] = {}
+                for estate in self.estates:
+                    if estate.get('estateType') == 'Phase' and estate.get('estateName'):
+                        phase_map.setdefault(estate['estateName'], []).append(estate.get('typeCode'))
+                self._phases_by_estate = phase_map
+                print(f"✓ 成功加载 {len(self.estates)} 个屋苑信息 (其中 {len(phase_map)} 个屋苑含期数)")
             else:
                 raise ValueError("屋苑信息文件格式不正确，缺少 'data' 字段")
                 
@@ -421,7 +431,8 @@ class CentanetTransactionScraper:
         post_type: str,
         offset: int = 0,
         size: int = 100,
-        order: str = "Descending"
+        order: str = "Descending",
+        phase_type_code: str = None
     ) -> Optional[Dict[str, Any]]:
         """
         获取指定屋苑的交易记录
@@ -432,6 +443,8 @@ class CentanetTransactionScraper:
             offset: 分页偏移量
             size: 每页数据量
             order: 排序方向 ("Descending" 最新在前 或 "Ascending" 最老在前)
+            phase_type_code: 期数ID（可选）。传入时按期数过滤（需配合屋苑ID），
+                             不传则查询屋苑全部记录
             
         Returns:
             API响应数据，失败返回None
@@ -450,7 +463,7 @@ class CentanetTransactionScraper:
             "primarySchoolNets": [],
             "markets": [],
             "universities": [],
-            "phaseAndEstate": []
+            "phaseAndEstate": [phase_type_code] if phase_type_code else []
         }
         
         # 全量历史模式不传 day 参数（实测：day=Day1095 仅返回近3年，不传则返回全部历史）
@@ -521,7 +534,8 @@ class CentanetTransactionScraper:
         post_type: str,
         total_count: int,
         order: str,
-        max_records: int = None
+        max_records: int = None,
+        phase_type_code: str = None
     ) -> List[Dict[str, Any]]:
         """
         按指定排序方向分页抓取交易记录
@@ -532,6 +546,7 @@ class CentanetTransactionScraper:
             total_count: 总记录数
             order: 排序方向 ("Ascending" 或 "Descending")
             max_records: 最多抓取条数，默认抓取全部（不超过API分页上限）
+            phase_type_code: 期数ID（可选），传入时按期数过滤
             
         Returns:
             抓取到的记录列表
@@ -552,7 +567,8 @@ class CentanetTransactionScraper:
                 post_type=post_type,
                 offset=page * self.MAX_PAGE_SIZE,
                 size=self.MAX_PAGE_SIZE,
-                order=order
+                order=order,
+                phase_type_code=phase_type_code
             )
             if response and 'data' in response and isinstance(response['data'], list):
                 page_records = response['data']
@@ -588,6 +604,141 @@ class CentanetTransactionScraper:
                 seen.add(record_id)
             merged.append(record)
         return merged
+    
+    def _fetch_bidirectional(
+        self,
+        estate_type_code: str,
+        post_type: str,
+        total_count: int,
+        type_name: str
+    ) -> List[Dict[str, Any]]:
+        """
+        双向爬取：降序取最新 + 升序补抓最老，按ID去重合并
+        
+        用于记录数超过单方向分页上限(MAX_OFFSET_LIMIT)的屋苑。
+        升序补抓含冗余重叠(PAGE_OVERLAP_BUFFER)，防止同日记录排序抖动导致交界处缺漏
+        
+        Args:
+            estate_type_code: 屋苑ID（typeCode）
+            post_type: 记录类型 ("Sale" 或 "Rent")
+            total_count: 总记录数
+            type_name: 记录类型名称（用于日志）
+            
+        Returns:
+            去重合并后的记录列表
+        """
+        # 降序：从最新记录开始，最多取 MAX_OFFSET_LIMIT 条
+        desc_records = self._fetch_pages(
+            estate_type_code=estate_type_code,
+            post_type=post_type,
+            total_count=total_count,
+            order="Descending",
+            max_records=self.MAX_OFFSET_LIMIT
+        )
+        
+        # 超过分页上限时，升序补抓最老的部分（含冗余重叠，防止同日排序抖动导致缺漏）
+        asc_records = []
+        if total_count > self.MAX_OFFSET_LIMIT:
+            oldest_count = total_count - self.MAX_OFFSET_LIMIT
+            asc_total = oldest_count + self.PAGE_OVERLAP_BUFFER
+            self._print_safe(f"    {type_name}记录超过API分页上限({self.MAX_OFFSET_LIMIT}条)，"
+                             f"升序补抓最老的 {asc_total} 条 (含{self.PAGE_OVERLAP_BUFFER}条冗余)")
+            asc_records = self._fetch_pages(
+                estate_type_code=estate_type_code,
+                post_type=post_type,
+                total_count=asc_total,
+                order="Ascending"
+            )
+            if len(asc_records) < asc_total:
+                self._print_safe(f"    ⚠ 升序补抓不完整({len(asc_records)}/{asc_total})，"
+                                 f"中间部分记录可能缺失")
+        
+        return self._merge_dedup(desc_records, asc_records)
+    
+    def _fetch_phase_records(
+        self,
+        estate_type_code: str,
+        post_type: str,
+        phase_type_code: str
+    ) -> List[Dict[str, Any]]:
+        """
+        爬取指定期数的全部成交记录
+        
+        实测：期数过滤必须配合屋苑级 typeCode（bigestAndEstate=[屋苑]+phaseAndEstate=[期数]），
+        单独用期数 typeCode 查询返回0条；期数记录量远小于分页上限（日出康城最大期约4200条），
+        单向降序即可拿全
+        
+        Args:
+            estate_type_code: 屋苑ID（typeCode）
+            post_type: 记录类型 ("Sale" 或 "Rent")
+            phase_type_code: 期数ID（typeCode，estateType=Phase 的条目）
+            
+        Returns:
+            该期数的全部记录列表
+        """
+        first_response = self.fetch_transactions(
+            estate_type_code=estate_type_code,
+            post_type=post_type,
+            offset=0,
+            size=self.MAX_PAGE_SIZE,
+            phase_type_code=phase_type_code
+        )
+        if not first_response:
+            return []
+        total_count = first_response.get('count', 0)
+        if total_count == 0:
+            return []
+        # 期数记录量通常远小于分页上限，直接单向降序爬全
+        return self._fetch_pages(
+            estate_type_code=estate_type_code,
+            post_type=post_type,
+            total_count=total_count,
+            order="Descending",
+            phase_type_code=phase_type_code
+        )
+    
+    def _crawl_by_phases(
+        self,
+        estate_type_code: str,
+        post_type: str,
+        phases: List[str],
+        total_count: int,
+        type_name: str
+    ) -> List[Dict[str, Any]]:
+        """
+        超级屋苑按期数拆分爬取成交记录
+        
+        记录数超过双向爬取覆盖范围(2*MAX_OFFSET_LIMIT)时，逐期爬取再合并。
+        每期记录量远小于分页上限，可完整拿全。
+        注意：只爬取 estate_info 期数列表内的期，未收录的新开盘期不爬
+        （需通过更新 estate_info 补充期数后重新爬取）
+        
+        Args:
+            estate_type_code: 屋苑ID（typeCode）
+            post_type: 记录类型 ("Sale" 或 "Rent")
+            phases: 期数ID列表（estateType=Phase 的 typeCode）
+            total_count: API统计的屋苑总记录数（用于日志）
+            type_name: 记录类型名称（用于日志）
+            
+        Returns:
+            按日期降序的期数记录列表
+        """
+        self._print_safe(f"    {type_name}记录多达 {total_count} 条，超过双向爬取覆盖范围"
+                         f"({2 * self.MAX_OFFSET_LIMIT}条)，启用按期数拆分爬取（{len(phases)} 期）")
+        all_records = []
+        for phase_idx, phase_code in enumerate(phases, 1):
+            phase_records = self._fetch_phase_records(
+                estate_type_code=estate_type_code,
+                post_type=post_type,
+                phase_type_code=phase_code
+            )
+            self._print_safe(f"    [{phase_idx}/{len(phases)}] 期数 {phase_code}: {len(phase_records)} 条")
+            all_records.extend(phase_records)
+        
+        records = self._merge_dedup([], all_records)
+        # 各期记录分别爬取，合并后按日期降序排序
+        records.sort(key=lambda r: str(r.get('insDate') or ''), reverse=True)
+        return records
     
     def _fetch_full_history(
         self,
@@ -635,45 +786,43 @@ class CentanetTransactionScraper:
         
         self._print_safe(f"    {type_name}记录: 共 {total_count} 条 (全量历史模式)")
         
-        # 降序：从最新记录开始，最多取 MAX_OFFSET_LIMIT 条
-        desc_records = self._fetch_pages(
-            estate_type_code=estate_type_code,
-            post_type=post_type,
-            total_count=total_count,
-            order="Descending",
-            max_records=self.MAX_OFFSET_LIMIT
-        )
-        
-        # 超过分页上限时，升序补抓最老的部分（含冗余重叠，防止同日排序抖动导致缺漏）
-        asc_records = []
-        if total_count > self.MAX_OFFSET_LIMIT:
-            oldest_count = total_count - self.MAX_OFFSET_LIMIT
-            asc_total = oldest_count + self.PAGE_OVERLAP_BUFFER
-            self._print_safe(f"    {type_name}记录超过API分页上限({self.MAX_OFFSET_LIMIT}条)，"
-                             f"升序补抓最老的 {asc_total} 条 (含{self.PAGE_OVERLAP_BUFFER}条冗余)")
-            asc_records = self._fetch_pages(
+        # 超过双向爬取覆盖范围(2*MAX_OFFSET_LIMIT)的超级屋苑：
+        # 有期数信息则按期数拆分爬取完整数据，否则退回双向爬取（中间部分缺失）
+        if total_count > 2 * self.MAX_OFFSET_LIMIT:
+            phases = self._phases_by_estate.get(estate_name, [])
+            if phases:
+                records = self._crawl_by_phases(
+                    estate_type_code=estate_type_code,
+                    post_type=post_type,
+                    phases=phases,
+                    total_count=total_count,
+                    type_name=type_name
+                )
+            else:
+                self._print_safe(f"    ⚠ {type_name}记录多达 {total_count} 条，超过双向爬取覆盖范围"
+                                 f"({2 * self.MAX_OFFSET_LIMIT}条)且无期数信息，"
+                                 f"中间约 {total_count - 2 * self.MAX_OFFSET_LIMIT} 条记录无法获取")
+                records = self._fetch_bidirectional(
+                    estate_type_code=estate_type_code,
+                    post_type=post_type,
+                    total_count=total_count,
+                    type_name=type_name
+                )
+        else:
+            # 常规流程：双向爬取（超过单方向分页上限时自动升序补抓最老部分）
+            records = self._fetch_bidirectional(
                 estate_type_code=estate_type_code,
                 post_type=post_type,
-                total_count=asc_total,
-                order="Ascending"
+                total_count=total_count,
+                type_name=type_name
             )
-            if len(asc_records) < asc_total:
-                self._print_safe(f"    ⚠ 升序补抓不完整({len(asc_records)}/{asc_total})，"
-                                 f"中间部分记录可能缺失")
-        
-        # 超过双向爬取可覆盖范围(2*MAX_OFFSET_LIMIT)的超级屋苑，中间部分无法获取
-        if total_count > 2 * self.MAX_OFFSET_LIMIT:
-            missing = total_count - 2 * self.MAX_OFFSET_LIMIT
-            self._print_safe(f"    ⚠ {type_name}记录多达 {total_count} 条，超过双向爬取覆盖范围，"
-                             f"中间约 {missing} 条记录无法获取（建议按期数 phaseAndEstate 拆分爬取）")
-        
-        records = self._merge_dedup(desc_records, asc_records)
         
         # 完整性检查：合并后数量与API总数对比
         if len(records) < total_count:
             missing = total_count - len(records)
-            self._print_safe(f"    ⚠ 合并后 {len(records)} 条，与API总数 {total_count} 条相差 {missing} 条"
-                             f"（可能因同日记录排序抖动缺漏或API计数含重复）")
+            self._print_safe(f"    ⚠ 合并后 {len(records)} 条，与API总数 {total_count} 条相差 {missing} 条")
+            self._print_safe(f"      可能原因：①estate_info 未收录最新开盘期数（可更新estate_info后重爬）"
+                             f" ②同日记录排序抖动缺漏 ③API计数含重复")
         
         # 最早日期过滤（全量爬取后统一过滤）
         if earliest_date:
@@ -1000,7 +1149,8 @@ class CentanetTransactionScraper:
             rent_history = self.load_history_records(estate_type_code, self.POST_TYPE_RENT)
             history_rent_records = rent_history.get('data', []) if rent_history else None
             
-            # 爬取销售记录
+            # 爬取销售记录（暂不保存，待租赁记录完成后统一保存，
+            # 避免中断时留下半成品文件导致断点续爬错误跳过整个屋苑）
             self._print_safe(f"    [{thread_idx}] 获取销售记录...")
             sale_records = self.fetch_all_transactions_for_estate(
                 estate=estate,
@@ -1010,14 +1160,7 @@ class CentanetTransactionScraper:
             )
             
             if sale_records:
-                self.save_records(
-                    records=sale_records,
-                    estate_type_code=estate_type_code,
-                    post_type=self.POST_TYPE_SALE
-                )
                 result['sale_count'] = len(sale_records)
-                with self._lock:
-                    self.stats['sale_records'] += len(sale_records)
             else:
                 self._print_safe(f"    [{thread_idx}] - 无销售记录")
             
@@ -1040,16 +1183,28 @@ class CentanetTransactionScraper:
             )
             
             if rent_records:
+                result['rent_count'] = len(rent_records)
+            else:
+                self._print_safe(f"    [{thread_idx}] - 无租赁记录")
+            
+            # sale 和 rent 都爬完后统一保存（中断时该屋苑要么无文件可重爬、要么文件完整）
+            if sale_records:
+                self.save_records(
+                    records=sale_records,
+                    estate_type_code=estate_type_code,
+                    post_type=self.POST_TYPE_SALE
+                )
+                with self._lock:
+                    self.stats['sale_records'] += len(sale_records)
+            
+            if rent_records:
                 self.save_records(
                     records=rent_records,
                     estate_type_code=estate_type_code,
                     post_type=self.POST_TYPE_RENT
                 )
-                result['rent_count'] = len(rent_records)
                 with self._lock:
                     self.stats['rent_records'] += len(rent_records)
-            else:
-                self._print_safe(f"    [{thread_idx}] - 无租赁记录")
             
             # 成功完成后记录进度
             self._record_finished_estate(estate_type_code)
