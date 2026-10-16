@@ -41,12 +41,16 @@ if _DATA_DIR:
         'housing_types':       os.path.join(_DATA_DIR, 'housing_types.json'),
         'price_trend':         os.path.join(_DATA_DIR, 'monthly_price_trend.json'),
         'dynamic_estate_data': os.path.join(_DATA_DIR, 'dynamic_estate_data.json'),
+        # 买租对比评估数据（外部估值服务生成）
+        'buy_rent_advice':     os.path.join(_DATA_DIR, 'buy_rent_advice.json'),
         'transaction_buy_dir': os.path.join(_DATA_DIR, 'transaction_buy'),
     }
 else:
-    # 纯本地开发模式：使用硬编码的绝对路径，修改下方两行切换数据目录
+    # 纯本地开发模式：使用硬编码的绝对路径，修改下方几行切换数据目录
     _LOCAL_CENTANET_DIR = '/home/zhangchi/Documents/28hse/centanet_system/crawler'
     _LOCAL_28HSE_DIR    = '/home/zhangchi/Documents/28hse/28hse_system'
+    # 买租对比评估数据由外部估值服务（hk_realestate_value）生成
+    _LOCAL_VALUE_DIR    = '/home/zhangchi/Documents/hk_realestate_value/python'
 
     LOCAL_PATHS = {
         # 屋苑静态信息（含坐标、基本资料）
@@ -59,6 +63,8 @@ else:
         'price_trend':         f'{_LOCAL_CENTANET_DIR}/monthly_price_trend_20260314.json',
         # 预计算动态数据（面积范围 + 当前尺价），由 preprocess_dynamic_estate_data.py 生成
         'dynamic_estate_data': f'{_LOCAL_CENTANET_DIR}/dynamic_estate_data.json',
+        # 买租对比评估数据（10年资产差，含分户型 details）
+        'buy_rent_advice':     f'{_LOCAL_VALUE_DIR}/example.json',
         # 交易记录 buy 目录（本地回退用）
         'transaction_buy_dir': f'{_LOCAL_CENTANET_DIR}/transaction_record_20260314_trans/buy',
     }
@@ -87,4 +93,5 @@ COS_KEYS = {
     'housing_types':       'data/housing_types.json',
     'price_trend':         'data/monthly_price_trend.json',
     'dynamic_estate_data': 'data/dynamic_estate_data.json',
+    'buy_rent_advice':     'data/buy_rent_advice.json',
 }

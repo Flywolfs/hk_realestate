@@ -1,6 +1,6 @@
 <template>
   <div class="color-legend">
-    <h3>租售比图例</h3>
+    <h3>{{ isBuyRent ? '10年资产差图例' : '租售比图例' }}</h3>
     <div class="gradient-bar">
       <div 
         v-for="(color, index) in gradientColors" 
@@ -9,12 +9,30 @@
         :style="{ backgroundColor: color }"
       ></div>
     </div>
-    <div class="legend-labels">
+    <div class="legend-labels" v-if="isBuyRent">
+      <span class="pivot-label">-50万</span>
+      <span>0</span>
+      <span class="pivot-label">+50万</span>
+    </div>
+    <div class="legend-labels" v-else>
       <span>0%</span>
       <span class="pivot-label">4%</span>
       <span>7%+</span>
     </div>
-    <div class="legend-description">
+    <div class="legend-description" v-if="isBuyRent">
+      <div class="desc-item">
+        <span class="color-box green"></span>
+        <span>绿：亏（租比买划算）</span>
+      </div>
+      <div class="desc-item">
+        <span class="color-box red"></span>
+        <span>红：赚（买比租划算）</span>
+      </div>
+      <div class="desc-item">
+        <span>每档 10 万，±50 万封顶</span>
+      </div>
+    </div>
+    <div class="legend-description" v-else>
       <div class="desc-item">
         <span class="color-box green"></span>
         <span>< 4%: 绿色渐变到黄色</span>
@@ -26,13 +44,13 @@
     </div>
     <div class="legend-note">
       <span class="gray-box"></span>
-      <span>灰色 = 无租售比数据</span>
+      <span>{{ isBuyRent ? '灰色 = 无评估数据' : '灰色 = 无租售比数据' }}</span>
     </div>
   </div>
 </template>
 
 <script>
-import { getGradientColors } from '../utils/colorUtils.js'
+import { getGradientColors, getBuyRentGradientColors } from '../utils/colorUtils.js'
 
 export default {
   name: 'ColorLegend',
@@ -44,11 +62,19 @@ export default {
     maxValue: {
       type: Number,
       default: 10
+    },
+    // 视图模式：rentRatio=租售比 / buyRent=10年资产差
+    mode: {
+      type: String,
+      default: 'rentRatio'
     }
   },
   computed: {
+    isBuyRent() {
+      return this.mode === 'buyRent'
+    },
     gradientColors() {
-      return getGradientColors(20)
+      return this.isBuyRent ? getBuyRentGradientColors() : getGradientColors(20)
     }
   }
 }

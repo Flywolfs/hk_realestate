@@ -62,6 +62,14 @@ export async function getRentRatioStats() {
 }
 
 /**
+ * 获取买租对比评估统计信息（10年资产差）
+ * @returns {Promise} 买租对比统计数据
+ */
+export async function getBuyRentStats() {
+  return api.get('/buy-rent-stats')
+}
+
+/**
  * 搜索小区
  * @param {string} keyword - 搜索关键词
  * @returns {Promise} 搜索结果

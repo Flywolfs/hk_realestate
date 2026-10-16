@@ -238,6 +238,27 @@ def get_rent_ratios():
         }), 500
 
 
+@app.route('/api/buy-rent-stats', methods=['GET'])
+@rate_limit
+def get_buy_rent_stats():
+    """
+    获取买租对比评估统计信息（10年资产差）
+    用于前端颜色图例与统计面板展示
+    """
+    try:
+        stats = data_loader.get_buy_rent_statistics()
+        return jsonify({
+            'success': True,
+            'data': stats
+        })
+    except Exception as e:
+        logger.error(f"Error in get_buy_rent_stats: {str(e)}", exc_info=True)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 @app.route('/api/search', methods=['GET'])
 @rate_limit
 def search_estates():
@@ -492,6 +513,7 @@ if __name__ == '__main__':
     print(f"  - GET /api/estates")
     print(f"  - GET /api/estates/<id>")
     print(f"  - GET /api/rent-ratios")
+    print(f"  - GET /api/buy-rent-stats")
     print(f"  - GET /api/search?keyword=<关键词>")
     print(f"  - GET /api/primary-schools")
     print("\n安全特性:")

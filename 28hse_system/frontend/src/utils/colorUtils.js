@@ -82,3 +82,63 @@ export function getGradientColors(steps = 10) {
   }
   return colors
 }
+
+// ============================================================
+// 买租对比：10年资产差颜色映射（离散档位）
+// 规则：每档 10 万港元；绿(亏) → 黄(0附近) → 红(赚)；
+//       超过 ±50 万统一取最深色；无数据显示灰色
+// ============================================================
+
+export const BUY_RENT_STEP = 100000        // 每个颜色级别对应 10 万
+const BUY_RENT_MAX_LEVEL = 5               // ±5 档封顶（即 ±50 万）
+
+/**
+ * 将买比租资金差换算为颜色档位（-5 ~ +5，±5万内归 0 档）
+ * @param {number|null} score - 买比租的资金差（HKD，正=赚，负=亏）
+ * @returns {number|null} 档位，无数据返回 null
+ */
+export function getBuyRentLevel(score) {
+  if (score === null || score === undefined || isNaN(score)) {
+    return null
+  }
+  // 对称就近取档
+  const level = Math.sign(score) * Math.floor(Math.abs(score) / BUY_RENT_STEP + 0.5)
+  return Math.max(-BUY_RENT_MAX_LEVEL, Math.min(BUY_RENT_MAX_LEVEL, level))
+}
+
+/**
+ * 档位 → 颜色（0=黄，越负越绿/越亏，越正越红/越赚）
+ * @param {number} level - 档位(-5 ~ +5)
+ * @returns {string} 十六进制颜色
+ */
+function buyRentLevelToColor(level) {
+  const hue = level < 0
+    ? 60 + (-level / BUY_RENT_MAX_LEVEL) * 60   // 黄(60°) → 绿(120°)
+    : 60 - (level / BUY_RENT_MAX_LEVEL) * 60    // 黄(60°) → 红(0°)
+  return hslToHex(hue, 80, 50)
+}
+
+/**
+ * 根据买比租资金差返回对应的颜色
+ * @param {number|null} score - 资金差（HKD，正=赚/买划算，负=亏/租划算）
+ * @returns {string} 颜色值(十六进制)
+ */
+export function getBuyRentColor(score) {
+  const level = getBuyRentLevel(score)
+  if (level === null) {
+    return '#999999'
+  }
+  return buyRentLevelToColor(level)
+}
+
+/**
+ * 获取买租对比渐变色彩数组（用于图例显示，离散档位色块）
+ * @returns {Array} 颜色数组，从 -50万 (最绿) 到 +50万 (最红)，共 11 档
+ */
+export function getBuyRentGradientColors() {
+  const colors = []
+  for (let level = -BUY_RENT_MAX_LEVEL; level <= BUY_RENT_MAX_LEVEL; level++) {
+    colors.push(buyRentLevelToColor(level))
+  }
+  return colors
+}

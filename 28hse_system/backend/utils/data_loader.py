@@ -90,6 +90,7 @@ class DataLoader:
         self.housing_types_path       = paths['housing_types']
         self.price_trend_path         = paths['price_trend']
         self.dynamic_estate_data_path = paths['dynamic_estate_data']
+        self.buy_rent_advice_path     = paths.get('buy_rent_advice', '')
 
         # 设置交易数据路径（仅本地开发回退用，cos 模式下通常不会执行到）
         if transaction_buy_path:
@@ -191,6 +192,49 @@ class DataLoader:
         except json.JSONDecodeError as e:
             print(f"警告: 预计算数据解析失败 {e}，将回退到实时读取交易记录")
             return {}
+
+    @lru_cache(maxsize=1)
+    def load_buy_rent_advice(self) -> Dict:
+        """
+        加载买租对比评估数据（由外部估值服务生成）。
+        文件结构：{metadata: {...}, data: {estate_id: {name, verdict, details: [...]}}}
+        details 中每项为该屋苑某户型的评估：{area, monthly_rent, sale_price, score, verdict}
+        使用LRU缓存提高性能
+        """
+        try:
+            with open(self.buy_rent_advice_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            print(f"警告: 未找到买租对比数据文件 {self.buy_rent_advice_path}")
+            return {'metadata': {}, 'data': {}}
+        except json.JSONDecodeError as e:
+            print(f"警告: 买租对比数据解析失败 {e}")
+            return {'metadata': {}, 'data': {}}
+
+    def get_estate_buy_rent(self, estate_id: str) -> Optional[Dict]:
+        """
+        获取单个屋苑的买租对比评估结果。
+        屋苑级 score 取所有户型中的最大值（有户型值得买则整个屋苑值得买）。
+        :return: {'verdict', 'score', 'years', 'details'} 或 None（无评估数据）
+        """
+        advice = self.load_buy_rent_advice()
+        entry = (advice.get('data') or {}).get(estate_id)
+        if not isinstance(entry, dict):
+            return None
+
+        details = entry.get('details') or []
+        scores = [
+            d.get('score') for d in details
+            if isinstance(d, dict) and isinstance(d.get('score'), (int, float))
+        ]
+        years = ((advice.get('metadata') or {}).get('input_params') or {}).get('years', 10)
+
+        return {
+            'verdict': entry.get('verdict'),
+            'score': max(scores) if scores else None,
+            'years': years,
+            'details': details,
+        }
 
     def load_estate_transactions(self, estate_id: str) -> List[Dict]:
         """
@@ -342,12 +386,17 @@ class DataLoader:
             # 获取当前尺价
             current_price_per_sqft = self.get_estate_current_price_per_sqft(estate_id)
             
+            # 整合买租对比评估（外部服务生成，仅部分屋苑有数据）
+            buy_rent = self.get_estate_buy_rent(estate_id) or {}
+            
             integrated_list.append({
                 'id': estate_id,
                 'name': estate_data.get('name', ''),
                 'address': estate_data.get('address', ''),
                 'coordinates': coordinates,
                 'rent_ratio': latest_ratio,  # 最新月份租售比（用于颜色映射）
+                'buy_rent_score': buy_rent.get('score'),      # 10年资产差（屋苑内最优户型，正=买划算）
+                'buy_rent_verdict': buy_rent.get('verdict'),  # buy=值得买 / rent=租更划算
                 # 注意：overall_ratio_timeseries 和 room_type_ratio 已移至详情接口
                 # 以减少列表接口的响应体积（微信云托管限制1MB）
                 'housing_type': housing_type,
@@ -400,6 +449,9 @@ class DataLoader:
         # 获取平均尺价
         avg_price_per_sqft = self.get_estate_current_price_per_sqft(estate_id)
         
+        # 获取买租对比评估（无数据时为None，前端隐藏对应区块）
+        buy_rent_advice = self.get_estate_buy_rent(estate_id)
+        
         # 获取尺价趋势时序
         price_trend_data = self.load_price_trend_by_numeric_id()
         price_trend_timeseries = price_trend_data.get(estate_id, {})
@@ -424,6 +476,7 @@ class DataLoader:
             'min_area': area_range.get('min_area'),  # 最小面积
             'max_area': area_range.get('max_area'),   # 最大面积
             'avg_price_per_sqft': avg_price_per_sqft,  # 平均尺价
+            'buy_rent_advice': buy_rent_advice,  # 买租对比评估（10年资产差）
             'price_trend_timeseries': price_trend_timeseries  # 尺价趋势时序
         }
         
@@ -484,6 +537,50 @@ class DataLoader:
             'data': overall_ratios
         }
     
+    def get_buy_rent_statistics(self) -> Dict:
+        """
+        获取买租对比评估统计信息（用于前端图例与统计面板展示）
+        屋苑级 score = 该屋苑所有户型中最大的资金差
+        """
+        advice = self.load_buy_rent_advice()
+        meta = advice.get('metadata') or {}
+        data = advice.get('data') or {}
+
+        scores = []
+        for entry in data.values():
+            if not isinstance(entry, dict):
+                continue
+            details = entry.get('details') or []
+            detail_scores = [
+                d.get('score') for d in details
+                if isinstance(d, dict) and isinstance(d.get('score'), (int, float))
+            ]
+            if detail_scores:
+                scores.append(max(detail_scores))
+
+        buy_count = sum(1 for v in scores if v > 0)
+
+        median = 0
+        if scores:
+            sorted_scores = sorted(scores)
+            mid = len(sorted_scores) // 2
+            if len(sorted_scores) % 2:
+                median = sorted_scores[mid]
+            else:
+                median = (sorted_scores[mid - 1] + sorted_scores[mid]) / 2
+
+        return {
+            'count': len(scores),
+            'buy_count': buy_count,
+            'rent_count': len(scores) - buy_count,
+            'min': min(scores) if scores else 0,
+            'max': max(scores) if scores else 0,
+            'average': (sum(scores) / len(scores)) if scores else 0,
+            'median': median,
+            'years': (meta.get('input_params') or {}).get('years', 10),
+            'generated_at': meta.get('generated_at'),
+        }
+
     def reload(self):
         """
         热重载数据：
@@ -499,6 +596,7 @@ class DataLoader:
             self.housing_types_path       = paths['housing_types']
             self.price_trend_path         = paths['price_trend']
             self.dynamic_estate_data_path = paths['dynamic_estate_data']
+            self.buy_rent_advice_path     = paths['buy_rent_advice']
 
         # 清空所有 lru_cache，触发下次访问时重新加载
         self.load_estate_static_info.cache_clear()
@@ -506,6 +604,7 @@ class DataLoader:
         self.load_housing_types.cache_clear()
         self.load_price_trend_by_numeric_id.cache_clear()
         self.load_dynamic_estate_data.cache_clear()
+        self.load_buy_rent_advice.cache_clear()
 
     def search_estates_by_name(self, keyword: str) -> List[Dict]:
         """

@@ -7,11 +7,11 @@
       <div class="filter-section">
         <label class="checkbox-label">
           <input type="checkbox" v-model="showGrayMarkers" @change="applyFilters" />
-          <span>显示无租售比数据的小区</span>
+          <span>{{ viewMode === 'buyRent' ? '显示无评估数据的小区' : '显示无租售比数据的小区' }}</span>
         </label>
       </div>
       
-      <div class="filter-section">
+      <div class="filter-section" v-if="viewMode === 'rentRatio'">
         <h4>租售比区间筛选</h4>
         <label class="checkbox-label">
           <input type="checkbox" v-model="filters.below3" @change="applyFilters" />
@@ -114,13 +114,20 @@
 import L from 'leaflet'
 import { Chart, registerables } from 'chart.js'
 import { getAllEstates, getEstateDetail, getRentRatioStats, getPrimarySchools } from '../utils/api.js'
-import { getRentRatioColor } from '../utils/colorUtils.js'
+import { getRentRatioColor, getBuyRentColor } from '../utils/colorUtils.js'
 
 // 注册Chart.js组件
 Chart.register(...registerables)
 
 export default {
   name: 'MapView',
+  props: {
+    // 视图模式：rentRatio=租售比 / buyRent=10年资产差
+    viewMode: {
+      type: String,
+      default: 'rentRatio'
+    }
+  },
   data() {
     return {
       map: null,
@@ -152,6 +159,12 @@ export default {
   mounted() {
     this.initMap()
     this.loadData()
+  },
+  watch: {
+    // 切换视图模式后重刷所有标记颜色
+    viewMode() {
+      this.recolorMarkers()
+    }
   },
   methods: {
     initMap() {
@@ -207,11 +220,7 @@ export default {
     
     addMarker(estate) {
       const { latitude, longitude } = estate.coordinates
-      const color = getRentRatioColor(
-        estate.rent_ratio,
-        this.rentRatioStats.min,
-        this.rentRatioStats.max
-      )
+      const color = this.getEstateColor(estate)
       
       // 创建圆形标记，半径从8改为6
       const marker = L.circleMarker([latitude, longitude], {
@@ -233,6 +242,53 @@ export default {
       
       // 保存标记引用
       this.markers[estate.id] = marker
+    },
+    
+    // 根据当前视图模式计算屋苑标记颜色
+    getEstateColor(estate) {
+      if (this.viewMode === 'buyRent') {
+        return getBuyRentColor(estate.buy_rent_score)
+      }
+      const stats = this.rentRatioStats || {}
+      return getRentRatioColor(estate.rent_ratio, stats.min, stats.max)
+    },
+    
+    // 切换视图模式后重刷所有标记颜色
+    recolorMarkers() {
+      Object.values(this.markers).forEach(marker => {
+        marker.setStyle({ fillColor: this.getEstateColor(marker.estateData) })
+      })
+    },
+    
+    // 格式化买租对比明细列表（弹窗展示）
+    formatBuyRentDetails(details) {
+      return details.map(d => {
+        const hasScore = typeof d.score === 'number'
+        const scoreText = hasScore
+          ? `${d.score >= 0 ? '赚' : '亏'} ${(Math.abs(d.score) / 10000).toFixed(1)} 万`
+          : '暂无资金差'
+        const areaText = typeof d.area === 'number' ? `${Math.round(d.area)} 尺` : '面积未知'
+        const rentText = typeof d.monthly_rent === 'number'
+          ? `月租 ${Math.round(d.monthly_rent).toLocaleString()}`
+          : '月租暂无'
+        const priceText = typeof d.sale_price === 'number'
+          ? `售价 ${(d.sale_price / 10000).toFixed(1)} 万`
+          : '售价暂无'
+        const verdictText = d.verdict === 'buy' ? '值得买' : '租更划算'
+        return `
+          <div class="buy-rent-item">
+            <div class="buy-rent-item-top">
+              <span class="buy-rent-area">${areaText}</span>
+              <span class="buy-rent-score ${hasScore ? (d.score >= 0 ? 'gain' : 'loss') : 'unknown'}">${scoreText}</span>
+            </div>
+            <div class="buy-rent-item-bottom">
+              <span>${rentText}</span>
+              <span>${priceText}</span>
+              <span class="buy-rent-tag ${d.verdict === 'buy' ? 'buy' : 'rent'}">${verdictText}</span>
+            </div>
+          </div>
+        `
+      }).join('')
     },
     
     async showEstateDetail(estateId, marker) {
@@ -262,10 +318,27 @@ export default {
           timeseries: detail.price_trend_timeseries
         } : null
         
+        // 买 vs 租区块：资产差视图下置顶展示，其余视图排在末尾
+        const hasBuyRent = !!(detail.buy_rent_advice &&
+                              detail.buy_rent_advice.details &&
+                              detail.buy_rent_advice.details.length > 0)
+        const buyRentSection = hasBuyRent ? `
+          <div class="popup-section buy-rent-section">
+            <strong>买 vs 租（${detail.buy_rent_advice.years}年资产差）:</strong>
+            <div class="buy-rent-verdict ${detail.buy_rent_advice.verdict === 'buy' ? 'buy' : 'rent'}">
+              ${detail.buy_rent_advice.verdict === 'buy' ? '整体判定：买比租划算（值得买）' : '整体判定：租比买划算'}
+            </div>
+            <div class="buy-rent-list">
+              ${this.formatBuyRentDetails(detail.buy_rent_advice.details)}
+            </div>
+          </div>
+        ` : ''
+        
         // 构建Popup内容
         const popupContent = `
           <div class="estate-popup">
             <h3>${detail.name}</h3>
+            ${this.viewMode === 'buyRent' ? buyRentSection : ''}
             <div class="popup-section">
               <strong>小区ID:</strong> ${detail.id}
             </div>
@@ -331,6 +404,8 @@ export default {
                 </div>
               </div>
             ` : ''}
+            
+            ${this.viewMode === 'buyRent' ? '' : buyRentSection}
           </div>
         `
         
@@ -339,6 +414,8 @@ export default {
           marker.bindPopup(popupContent, {
             maxWidth: 400,
             minWidth: 350,
+            maxHeight: 430,
+            autoPanPadding: [24, 24],
             className: 'custom-popup'
           })
           
@@ -585,27 +662,35 @@ export default {
     
     // 判断小区是否在筛选范围内
     isInFilterRange(estate) {
+      const isBuyRent = this.viewMode === 'buyRent'
       const ratio = estate.rent_ratio
+      const buyRentScore = estate.buy_rent_score
       
-      // 如果没有租售比数据
-      if (ratio === null || ratio === undefined) {
+      // 当前视图指标是否有数据
+      const hasData = isBuyRent
+        ? (buyRentScore !== null && buyRentScore !== undefined)
+        : (ratio !== null && ratio !== undefined)
+      
+      if (!hasData) {
         if (!this.showGrayMarkers) return false
       }
       
-      // === 租售比区间筛选 ===
-      const anyRatioFilterSelected = this.filters.below3 || this.filters.range3to3_5 || 
-                                      this.filters.range3_5to4 || this.filters.range4to5 || 
-                                      this.filters.above5
-      
-      if (anyRatioFilterSelected && ratio !== null && ratio !== undefined) {
-        let inRatioRange = false
-        if (this.filters.below3 && ratio < 3) inRatioRange = true
-        if (this.filters.range3to3_5 && ratio >= 3 && ratio < 3.5) inRatioRange = true
-        if (this.filters.range3_5to4 && ratio >= 3.5 && ratio < 4) inRatioRange = true
-        if (this.filters.range4to5 && ratio >= 4 && ratio < 5) inRatioRange = true
-        if (this.filters.above5 && ratio >= 5) inRatioRange = true
+      // === 租售比区间筛选（仅租售比模式生效） ===
+      if (!isBuyRent) {
+        const anyRatioFilterSelected = this.filters.below3 || this.filters.range3to3_5 || 
+                                        this.filters.range3_5to4 || this.filters.range4to5 || 
+                                        this.filters.above5
         
-        if (!inRatioRange) return false
+        if (anyRatioFilterSelected && ratio !== null && ratio !== undefined) {
+          let inRatioRange = false
+          if (this.filters.below3 && ratio < 3) inRatioRange = true
+          if (this.filters.range3to3_5 && ratio >= 3 && ratio < 3.5) inRatioRange = true
+          if (this.filters.range3_5to4 && ratio >= 3.5 && ratio < 4) inRatioRange = true
+          if (this.filters.range4to5 && ratio >= 4 && ratio < 5) inRatioRange = true
+          if (this.filters.above5 && ratio >= 5) inRatioRange = true
+          
+          if (!inRatioRange) return false
+        }
       }
       
       // === 房屋类型筛选 ===
@@ -997,5 +1082,92 @@ export default {
 .room-ratio {
   color: #4CAF50;
   font-weight: 500;
+}
+
+/* ===== 买 vs 租 10年资产差区块 ===== */
+.popup-section.buy-rent-section {
+  background: #f5f5f5;
+  padding: 10px;
+  border-radius: 4px;
+  margin-top: 10px;
+}
+
+.buy-rent-verdict {
+  margin: 6px 0 8px 0;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.buy-rent-verdict.buy {
+  background: #ffebee;
+  color: #c62828;
+  border-left: 4px solid #f44336;
+}
+
+.buy-rent-verdict.rent {
+  background: #e8f5e9;
+  color: #2e7d32;
+  border-left: 4px solid #4CAF50;
+}
+
+.buy-rent-item {
+  background: #ffffff;
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.buy-rent-item:last-child {
+  margin-bottom: 0;
+}
+
+.buy-rent-item-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 3px;
+}
+
+.buy-rent-area {
+  font-weight: 600;
+  color: #333;
+}
+
+.buy-rent-score.gain {
+  color: #d32f2f;
+  font-weight: 600;
+}
+
+.buy-rent-score.loss {
+  color: #2e7d32;
+  font-weight: 600;
+}
+
+.buy-rent-item-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  color: #666;
+}
+
+.buy-rent-tag {
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.buy-rent-tag.buy {
+  background: #ffcdd2;
+  color: #b71c1c;
+}
+
+.buy-rent-tag.rent {
+  background: #c8e6c9;
+  color: #1b5e20;
 }
 </style>
