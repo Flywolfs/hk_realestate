@@ -126,6 +126,15 @@ export default {
     viewMode: {
       type: String,
       default: 'rentRatio'
+    },
+    // 买租资产差数据范围（用于动态分档着色，null 时回退固定档位）
+    buyRentMin: {
+      type: Number,
+      default: null
+    },
+    buyRentMax: {
+      type: Number,
+      default: null
     }
   },
   data() {
@@ -165,6 +174,13 @@ export default {
     viewMode() {
       this.recolorMarkers()
       this.applyFilters()
+    },
+    // 数据范围加载完成后重绘颜色（初始渲染时 min/max 可能尚未到位）
+    buyRentMin() {
+      if (this.viewMode === 'buyRent') this.recolorMarkers()
+    },
+    buyRentMax() {
+      if (this.viewMode === 'buyRent') this.recolorMarkers()
     }
   },
   methods: {
@@ -248,7 +264,7 @@ export default {
     // 根据当前视图模式计算屋苑标记颜色
     getEstateColor(estate) {
       if (this.viewMode === 'buyRent') {
-        return getBuyRentColor(estate.buy_rent_score)
+        return getBuyRentColor(estate.buy_rent_score, this.buyRentMin, this.buyRentMax)
       }
       const stats = this.rentRatioStats || {}
       return getRentRatioColor(estate.rent_ratio, stats.min, stats.max)

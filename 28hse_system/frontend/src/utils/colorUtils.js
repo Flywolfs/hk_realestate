@@ -84,26 +84,49 @@ export function getGradientColors(steps = 10) {
 }
 
 // ============================================================
-// 买租对比：10年资产差颜色映射（离散档位）
-// 规则：每档 10 万港元；绿(亏) → 黄(0附近) → 红(赚)；
-//       超过 ±50 万统一取最深色；无数据显示灰色
+// 买租对比：10年资产差颜色映射（离散档位，按数据范围动态分档）
+// 规则：以 0 为中心，负向按 |负向端点|、正向按正向端点各自等分为 5 档；
+//       端点由调用方传入（默认取 P5/P95 分位截断，弱化极端值影响），
+//       超出端点的取最深色；未提供端点时回退为每档 10 万（±50 万）
 // ============================================================
 
-export const BUY_RENT_STEP = 100000        // 每个颜色级别对应 10 万
-const BUY_RENT_MAX_LEVEL = 5               // ±5 档封顶（即 ±50 万）
+export const BUY_RENT_STEP = 100000        // 回退档位跨度：每档 10 万
+export const BUY_RENT_LEVELS_PER_SIDE = 5  // 正负各 5 档（共 11 档色带）
 
 /**
- * 将买比租资金差换算为颜色档位（-5 ~ +5，±5万内归 0 档）
+ * 计算正负两侧每档对应的金额跨度
+ * @param {number|null} min - 负向端点（负数，如 P5 分位数）
+ * @param {number|null} max - 正向端点（正数，如 P95 分位数）
+ * @returns {{negSpan: number, posSpan: number}} 负向/正向每档跨度（正数）
+ */
+export function getBuyRentSpans(min, max) {
+  const fallback = BUY_RENT_STEP * BUY_RENT_LEVELS_PER_SIDE
+  return {
+    negSpan: (typeof min === 'number' && min < 0)
+      ? Math.abs(min) / BUY_RENT_LEVELS_PER_SIDE
+      : fallback,
+    posSpan: (typeof max === 'number' && max > 0)
+      ? max / BUY_RENT_LEVELS_PER_SIDE
+      : fallback
+  }
+}
+
+/**
+ * 将买比租资金差换算为颜色档位（-5 ~ +5）
  * @param {number|null} score - 买比租的资金差（HKD，正=赚，负=亏）
+ * @param {number|null} min - 负向端点（决定负向每档跨度）
+ * @param {number|null} max - 正向端点（决定正向每档跨度）
  * @returns {number|null} 档位，无数据返回 null
  */
-export function getBuyRentLevel(score) {
+export function getBuyRentLevel(score, min = null, max = null) {
   if (score === null || score === undefined || isNaN(score)) {
     return null
   }
+  const { negSpan, posSpan } = getBuyRentSpans(min, max)
+  const span = score < 0 ? negSpan : posSpan
   // 对称就近取档
-  const level = Math.sign(score) * Math.floor(Math.abs(score) / BUY_RENT_STEP + 0.5)
-  return Math.max(-BUY_RENT_MAX_LEVEL, Math.min(BUY_RENT_MAX_LEVEL, level))
+  const level = Math.sign(score) * Math.floor(Math.abs(score) / span + 0.5)
+  return Math.max(-BUY_RENT_LEVELS_PER_SIDE, Math.min(BUY_RENT_LEVELS_PER_SIDE, level))
 }
 
 /**
@@ -113,18 +136,20 @@ export function getBuyRentLevel(score) {
  */
 function buyRentLevelToColor(level) {
   const hue = level < 0
-    ? 60 + (-level / BUY_RENT_MAX_LEVEL) * 60   // 黄(60°) → 绿(120°)
-    : 60 - (level / BUY_RENT_MAX_LEVEL) * 60    // 黄(60°) → 红(0°)
+    ? 60 + (-level / BUY_RENT_LEVELS_PER_SIDE) * 60   // 黄(60°) → 绿(120°)
+    : 60 - (level / BUY_RENT_LEVELS_PER_SIDE) * 60    // 黄(60°) → 红(0°)
   return hslToHex(hue, 80, 50)
 }
 
 /**
  * 根据买比租资金差返回对应的颜色
  * @param {number|null} score - 资金差（HKD，正=赚/买划算，负=亏/租划算）
+ * @param {number|null} min - 负向端点（决定负向每档跨度）
+ * @param {number|null} max - 正向端点（决定正向每档跨度）
  * @returns {string} 颜色值(十六进制)
  */
-export function getBuyRentColor(score) {
-  const level = getBuyRentLevel(score)
+export function getBuyRentColor(score, min = null, max = null) {
+  const level = getBuyRentLevel(score, min, max)
   if (level === null) {
     return '#999999'
   }
@@ -133,11 +158,11 @@ export function getBuyRentColor(score) {
 
 /**
  * 获取买租对比渐变色彩数组（用于图例显示，离散档位色块）
- * @returns {Array} 颜色数组，从 -50万 (最绿) 到 +50万 (最红)，共 11 档
+ * @returns {Array} 颜色数组，从负向最深绿(最亏) 到 正向最深红(最赚)，共 11 档
  */
 export function getBuyRentGradientColors() {
   const colors = []
-  for (let level = -BUY_RENT_MAX_LEVEL; level <= BUY_RENT_MAX_LEVEL; level++) {
+  for (let level = -BUY_RENT_LEVELS_PER_SIDE; level <= BUY_RENT_LEVELS_PER_SIDE; level++) {
     colors.push(buyRentLevelToColor(level))
   }
   return colors

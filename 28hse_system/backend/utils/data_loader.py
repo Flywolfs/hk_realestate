@@ -7,6 +7,7 @@
   - cos 模式  ：启动时从微信云托管对象存储下载文件到本地缓存目录后读取
 """
 import json
+import math
 import os
 from functools import lru_cache
 from typing import Dict, List, Optional
@@ -537,6 +538,22 @@ class DataLoader:
             'data': overall_ratios
         }
     
+    @staticmethod
+    def _percentile(sorted_values: List[float], p: float) -> float:
+        """
+        计算百分位数（线性插值法，p 取值范围 0-100）
+        :param sorted_values: 已升序排序的数值列表
+        :param p: 百分位（如 5 表示 P5）
+        """
+        if not sorted_values:
+            return 0
+        k = (len(sorted_values) - 1) * p / 100
+        floor_idx = int(math.floor(k))
+        ceil_idx = int(math.ceil(k))
+        if floor_idx == ceil_idx:
+            return sorted_values[floor_idx]
+        return sorted_values[floor_idx] * (ceil_idx - k) + sorted_values[ceil_idx] * (k - floor_idx)
+
     def get_buy_rent_statistics(self) -> Dict:
         """
         获取买租对比评估统计信息（用于前端图例与统计面板展示）
@@ -561,6 +578,8 @@ class DataLoader:
         buy_count = sum(1 for v in scores if v > 0)
 
         median = 0
+        p5 = 0
+        p95 = 0
         if scores:
             sorted_scores = sorted(scores)
             mid = len(sorted_scores) // 2
@@ -568,6 +587,9 @@ class DataLoader:
                 median = sorted_scores[mid]
             else:
                 median = (sorted_scores[mid - 1] + sorted_scores[mid]) / 2
+            # 分位数端点：前端按 P5/P95 截断颜色分档，弱化极端值影响
+            p5 = self._percentile(sorted_scores, 5)
+            p95 = self._percentile(sorted_scores, 95)
 
         return {
             'count': len(scores),
@@ -577,6 +599,8 @@ class DataLoader:
             'max': max(scores) if scores else 0,
             'average': (sum(scores) / len(scores)) if scores else 0,
             'median': median,
+            'p5': p5,
+            'p95': p95,
             'years': (meta.get('input_params') or {}).get('years', 10),
             'generated_at': meta.get('generated_at'),
         }

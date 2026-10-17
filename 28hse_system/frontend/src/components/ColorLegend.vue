@@ -10,9 +10,9 @@
       ></div>
     </div>
     <div class="legend-labels" v-if="isBuyRent">
-      <span class="pivot-label">-50万</span>
+      <span class="pivot-label">{{ formatWan(buyRentMin) }}</span>
       <span>0</span>
-      <span class="pivot-label">+50万</span>
+      <span class="pivot-label">{{ formatWan(buyRentMax) }}</span>
     </div>
     <div class="legend-labels" v-else>
       <span>0%</span>
@@ -29,7 +29,7 @@
         <span>红：赚（买比租划算）</span>
       </div>
       <div class="desc-item">
-        <span>每档 10 万，±50 万封顶</span>
+        <span>{{ spanDescription }}</span>
       </div>
     </div>
     <div class="legend-description" v-else>
@@ -50,7 +50,7 @@
 </template>
 
 <script>
-import { getGradientColors, getBuyRentGradientColors } from '../utils/colorUtils.js'
+import { getGradientColors, getBuyRentGradientColors, getBuyRentSpans, BUY_RENT_LEVELS_PER_SIDE } from '../utils/colorUtils.js'
 
 export default {
   name: 'ColorLegend',
@@ -62,6 +62,15 @@ export default {
     maxValue: {
       type: Number,
       default: 10
+    },
+    // 买租资产差色带端点（负向 P5 / 正向 P95，null 时回退固定档位）
+    buyRentMin: {
+      type: Number,
+      default: null
+    },
+    buyRentMax: {
+      type: Number,
+      default: null
     },
     // 视图模式：rentRatio=租售比 / buyRent=10年资产差
     mode: {
@@ -75,6 +84,24 @@ export default {
     },
     gradientColors() {
       return this.isBuyRent ? getBuyRentGradientColors() : getGradientColors(20)
+    },
+    spanDescription() {
+      const { negSpan, posSpan } = getBuyRentSpans(this.buyRentMin, this.buyRentMax)
+      return `端点按 P5/P95 截断，正负各 ${BUY_RENT_LEVELS_PER_SIDE} 档：负向 ${this.formatSpan(negSpan)}/档，正向 ${this.formatSpan(posSpan)}/档`
+    }
+  },
+  methods: {
+    // 金额 → 万（带符号，大数取整，小数保留 1 位）
+    formatWan(value) {
+      if (value === null || value === undefined) return '-'
+      const wan = value / 10000
+      const digits = Math.abs(wan) >= 100 ? 0 : 1
+      const sign = wan > 0 ? '+' : ''
+      return sign + wan.toFixed(digits) + '万'
+    },
+    formatSpan(span) {
+      const wan = span / 10000
+      return (wan >= 100 ? wan.toFixed(0) : wan.toFixed(1)) + '万'
     }
   }
 }

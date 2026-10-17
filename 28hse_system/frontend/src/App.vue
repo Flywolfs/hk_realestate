@@ -26,6 +26,8 @@
         :min-value="rentRatioMin" 
         :max-value="rentRatioMax" 
         :mode="viewMode"
+        :buy-rent-min="buyRentNegBound"
+        :buy-rent-max="buyRentPosBound"
       />
       
       <div class="stats-panel">
@@ -58,7 +60,10 @@
     </div>
     
     <div class="map-area">
-      <MapView ref="mapView" :view-mode="viewMode" @data-loaded="handleDataLoaded" />
+      <MapView ref="mapView" :view-mode="viewMode"
+        :buy-rent-min="buyRentNegBound"
+        :buy-rent-max="buyRentPosBound"
+        @data-loaded="handleDataLoaded" />
     </div>
   </div>
 </template>
@@ -93,6 +98,20 @@ export default {
       const wan = this.buyRentStats.median / 10000
       const sign = wan >= 0 ? '+' : ''
       return sign + wan.toFixed(1) + ' 万'
+    },
+    // 色带负向端点：优先 P5（截断极端值），异常时回退最小值
+    buyRentNegBound() {
+      if (!this.buyRentStats) return null
+      const { p5, min } = this.buyRentStats
+      if (typeof p5 === 'number' && p5 < 0) return p5
+      return (typeof min === 'number' && min < 0) ? min : null
+    },
+    // 色带正向端点：优先 P95（截断极端值），异常时回退最大值
+    buyRentPosBound() {
+      if (!this.buyRentStats) return null
+      const { p95, max } = this.buyRentStats
+      if (typeof p95 === 'number' && p95 > 0) return p95
+      return (typeof max === 'number' && max > 0) ? max : null
     }
   },
   async mounted() {
