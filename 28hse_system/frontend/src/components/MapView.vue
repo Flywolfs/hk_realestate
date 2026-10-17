@@ -161,9 +161,10 @@ export default {
     this.loadData()
   },
   watch: {
-    // 切换视图模式后重刷所有标记颜色
+    // 切换视图模式后重刷所有标记颜色，并按新模式重新应用筛选
     viewMode() {
       this.recolorMarkers()
+      this.applyFilters()
     }
   },
   methods: {
