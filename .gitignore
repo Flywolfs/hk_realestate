@@ -68,6 +68,7 @@ centanet_system/crawler/dynamic_estate_data*.json
 centanet_system/crawler/monthly_price_trend*.json
 centanet_system/crawler/monthly_sales_volume*.json
 centanet_system/crawler/rental_summary*.json
+centanet_system/crawler/annual_price_trend*.json
 centanet_system/crawler/empty_estate.txt
 
 # 28hse 静态/动态房产数据
